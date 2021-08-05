@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@bazel_gazelle//:def.bzl", "gazelle")
+
+# gazelle:resolve go github.com/irfansharif/or-tools/cpsatsolver @com_github_irfansharif_or_tools//cpsatsolver
+gazelle(
+    name = "gazelle",
+    prefix = "github.com/irfansharif/allocator",
+)
+
+go_library(
+    name = "allocator",
+    srcs = ["allocator.go"],
+    importpath = "github.com/irfansharif/allocator",
+    visibility = ["//visibility:public"],
+    deps = ["@com_github_irfansharif_or_tools//cpsatsolver"],
+)
+
+go_test(
+    name = "allocator_test",
+    srcs = ["allocator_test.go"],
+    embed = [":allocator"],
+)
