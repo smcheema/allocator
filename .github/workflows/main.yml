@@ -26,10 +26,6 @@ jobs:
       - name: Run bazel version
         run: bazel --version
 
-      - name: Check gazelle
-        run: |
-          bazel run :gazelle
-          git diff --exit-code
       - name: Run bazel build
         run: |
           bazel build //...
