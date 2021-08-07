@@ -58,6 +58,6 @@ func addAssignToSomeNodeConstraint(model *cpsatsolver.Model, assignment [][]cpsa
 		// constraint each range to exist on exactly one node.
 		model.AddConstraints(
 			cpsatsolver.NewLinearConstraint(cpsatsolver.NewLinearExpr(assignment[_rangeIndex], coefficients, 0),
-			cpsatsolver.NewDomain(1, 1)))
+				cpsatsolver.NewDomain(1, 1)))
 	}
 }
