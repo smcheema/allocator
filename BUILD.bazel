@@ -19,4 +19,8 @@ go_test(
     name = "allocator_test",
     srcs = ["allocator_test.go"],
     embed = [":allocator"],
+    deps = [
+        "@com_github_irfansharif_or_tools//cpsatsolver",
+        "@com_github_stretchr_testify//require",
+    ],
 )
