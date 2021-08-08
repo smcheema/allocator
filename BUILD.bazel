@@ -9,7 +9,7 @@ gazelle(
 
 go_library(
     name = "allocator",
-    srcs = ["allocator.go"],
+    srcs = ["allocator.go", "config.go"],
     importpath = "github.com/irfansharif/allocator",
     visibility = ["//visibility:public"],
     deps = ["@com_github_irfansharif_or_tools//cpsatsolver"],
