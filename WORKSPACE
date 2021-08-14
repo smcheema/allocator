@@ -47,7 +47,7 @@ http_archive(
 
 git_repository(
     name = "com_github_irfansharif_or_tools",
-    commit = "3e554e075f6674a4e9956969afa3ac88b8964a3a",
+    commit = "7bf371607f5d0ace5df1eb502182d1b0aeede3e0",
     remote = "https://github.com/irfansharif/or-tools",
 )
 
