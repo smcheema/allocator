@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestGivenOnlyReplicationConstraintsTHENAppropriateReplicasAllocated(t *testing.T) {
-	rangeSizeLimit := 20
-	replicationFactor := 3
-	testClusterSize := int64(64)
-	testConfig := initConfiguration(buildCluster(testClusterSize), replicationFactor)
-	rangesToAllocate := make([]_range, rangeSizeLimit)
+func TestGIVENReplicationConstraintTHENAppropriateReplicasAllocated(t *testing.T) {
+	const RangeSizeLimit = 20
+	const ReplicationFactor = 3
+	const TestClusterSize = int64(64)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1)), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
-		rangesToAllocate[initIndex] = _range {
+		rangesToAllocate[initIndex] = _range{
 			rangeId: RangeId(initIndex),
 			tags:    nil,
 			demands: nil,
@@ -23,23 +23,23 @@ func TestGivenOnlyReplicationConstraintsTHENAppropriateReplicasAllocated(t *test
 		allocator := Allocator(initAllocator(rangesToAllocate[:rangeIndex], testConfig))
 		allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 		status, allocation := allocator.allocate()
-		require.Equal(t, status, true)
+		require.True(t, status)
 		for _, nodeAssignments := range allocation {
-			require.Equal(t, len(nodeAssignments), replicationFactor)
-			require.True(t, isValidNodeAssignment(nodeAssignments, testClusterSize))
-			require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, testClusterSize))
+			require.Equal(t, len(nodeAssignments), ReplicationFactor)
+			require.True(t, isValidNodeAssignment(nodeAssignments, TestClusterSize))
+			require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, TestClusterSize))
 		}
 	}
 }
 
-func TestGivenInsufficientNodesTHENAllocationFails(t *testing.T) {
-	rangeSizeLimit := 20
-	replicationFactor := 3
-	testClusterSize := int64(1)
-	testConfig := initConfiguration(buildCluster(testClusterSize), replicationFactor)
-	rangesToAllocate := make([]_range, rangeSizeLimit)
+func TestGIVENReplicationConstraintWHENInsufficientNodesTHENAllocationFails(t *testing.T) {
+	const RangeSizeLimit = 20
+	const ReplicationFactor = 3
+	const TestClusterSize = int64(1)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1)), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
-		rangesToAllocate[initIndex] = _range {
+		rangesToAllocate[initIndex] = _range{
 			rangeId: RangeId(initIndex),
 			tags:    nil,
 			demands: nil,
@@ -48,18 +48,18 @@ func TestGivenInsufficientNodesTHENAllocationFails(t *testing.T) {
 	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	status, allocation := allocator.allocate()
-	require.Equal(t, status, false)
+	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
-func TestGivenInfeasibleReplicationFactorTHENAllocationFails(t *testing.T) {
-	rangeSizeLimit := 20
-	replicationFactor := 128
-	testClusterSize := int64(64)
-	testConfig := initConfiguration(buildCluster(testClusterSize), replicationFactor)
-	rangesToAllocate := make([]_range, rangeSizeLimit)
+func TestGIVENReplicationConstraintWHENInfeasibleReplicationFactorTHENAllocationFails(t *testing.T) {
+	const RangeSizeLimit = 20
+	const ReplicationFactor = 128
+	const TestClusterSize = int64(64)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1)), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
-		rangesToAllocate[initIndex] = _range {
+		rangesToAllocate[initIndex] = _range{
 			rangeId: RangeId(initIndex),
 			tags:    nil,
 			demands: nil,
@@ -68,36 +68,112 @@ func TestGivenInfeasibleReplicationFactorTHENAllocationFails(t *testing.T) {
 	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	status, allocation := allocator.allocate()
-	require.Equal(t, status, false)
+	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
-func buildCluster(clusterSize int64) Cluster {
-	diskSpaceDemand := "DiskSpaceDemand"
+func TestGIVENCapacityConstraintWHENMultipleAllocationsPossibleTHENAllocationSucceeds(t *testing.T) {
+	const RangeSizeLimit = 20
+	const ReplicationFactor = 1
+	const TestClusterSize = int64(8)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 8_000, 10_000)), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
+	for initIndex := range rangesToAllocate {
+		rangesToAllocate[initIndex] = _range{
+			rangeId: RangeId(initIndex),
+			tags:    nil,
+			demands: Demands{SizeOnDiskDemand: ResourceAmount(initIndex)},
+		}
+	}
+	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
+	allocator.addAdhereToNodeDiskSpaceConstraint()
+	status, allocation := allocator.allocate()
+	require.True(t, status)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), ReplicationFactor)
+		require.True(t, isValidNodeAssignment(nodeAssignments, TestClusterSize))
+	}
+}
+
+func TestGIVENCapacityConstraintWHENSingleAllocationPossibleTHENAllocationSucceeds(t *testing.T) {
+	const RangeSizeLimit = 10
+	const ReplicationFactor = 1
+	const TestClusterSize = int64(3)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, []int64{70, 80, 90}), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
+	rangeDiskSpaceDemands := [RangeSizeLimit]ResourceAmount{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
+	for initIndex := range rangesToAllocate {
+		rangesToAllocate[initIndex] = _range{
+			rangeId: RangeId(initIndex),
+			tags:    nil,
+			demands: Demands{SizeOnDiskDemand: rangeDiskSpaceDemands[initIndex]},
+		}
+	}
+	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
+	allocator.addAdhereToNodeDiskSpaceConstraint()
+	status, allocation := allocator.allocate()
+	expectedAllocation := Assignments{
+		0: {2},
+		1: {1},
+		2: {0},
+		3: {0},
+		4: {0},
+		5: {0},
+		6: {0},
+		7: {0},
+		8: {0},
+		9: {0},
+	}
+	require.True(t, status)
+	require.Equal(t, expectedAllocation, allocation)
+}
+
+func TestGIVENCapacityConstraintWHENInsufficientNodeCapacityTHENAllocationFails(t *testing.T) {
+	const RangeSizeLimit = 10
+	const ReplicationFactor = 1
+	const TestClusterSize = int64(3)
+	testConfig := initConfiguration(buildCluster(TestClusterSize, []int64{70, 80, 80}), ReplicationFactor)
+	rangesToAllocate := make([]_range, RangeSizeLimit)
+	rangeDiskSpaceDemands := [RangeSizeLimit]ResourceAmount{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
+	for initIndex := range rangesToAllocate {
+		rangesToAllocate[initIndex] = _range{
+			rangeId: RangeId(initIndex),
+			tags:    nil,
+			demands: Demands{SizeOnDiskDemand: rangeDiskSpaceDemands[initIndex]},
+		}
+	}
+	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
+	allocator.addAdhereToNodeDiskSpaceConstraint()
+	status, allocation := allocator.allocate()
+	require.False(t, status)
+	require.Nil(t, allocation)
+}
+
+func buildCluster(clusterSize int64, nodeCapacities []int64) Cluster {
 	cluster := make(Cluster, clusterSize)
-	clusterCapacities := nodeCapacitySupplier(clusterSize)
 	for index := 0; index < len(cluster); index++ {
-		cluster[index] = node {
-			nodeId: 	 NodeId(index),
-			tags: 		 Tags{},
-			resources: 	 Resources{Resource(diskSpaceDemand): ResourceAmount(clusterCapacities[index])},
+		cluster[index] = node{
+			nodeId:    NodeId(index),
+			tags:      Tags{},
+			resources: Resources{DiskCapacityResource: ResourceAmount(nodeCapacities[index])},
 		}
 	}
 	return cluster
 }
 
-func nodeCapacitySupplier(clusterSize int64) []float64 {
-	minCapacity := 5000.0
-	maxCapacity := 5_000_000.0
-	nodeCapacities := make([]float64, clusterSize)
+func nodeCapacitySupplier(clusterSize int64, minCapacity int64, maxCapacity int64) []int64 {
+	nodeCapacities := make([]int64, clusterSize)
 	for index := 0; index < len(nodeCapacities); index++ {
-		nodeCapacities[index] = generateRandomFloatInRange(minCapacity, maxCapacity)
+		nodeCapacities[index] = generateRandomIntInRange(minCapacity, maxCapacity)
 	}
 	return nodeCapacities
 }
 
-func generateRandomFloatInRange(lower float64, upper float64) float64 {
-	return lower + rand.Float64() * (upper - lower)
+func generateRandomIntInRange(lower int64, upper int64) int64 {
+	return rand.Int63n(upper-lower) + lower
 }
 
 func isValidNodeAssignment(nodeIds []NodeId, clusterSize int64) bool {

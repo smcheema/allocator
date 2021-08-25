@@ -6,30 +6,31 @@ import (
 )
 
 type _range struct {
-	rangeId   RangeId
-	tags 	  Tags
-	demands   Demands
+	rangeId RangeId
+	tags    Tags
+	demands Demands
 }
 
 type Allocator interface {
 	addAssignLikeReplicasToDifferentNodesConstraint()
+	addAdhereToNodeDiskSpaceConstraint()
 	allocate() (ok bool, assignments Assignments)
 }
 
 type CKAllocator struct {
-	ranges   []_range
-	config   *Configuration
-	model    *cpsatsolver.Model
+	ranges           []_range
+	config           *Configuration
+	model            *cpsatsolver.Model
 	constraintMatrix ConstraintMatrix
 }
 
 func initAllocator(ranges []_range, config *Configuration) *CKAllocator {
 	model := cpsatsolver.NewModel()
 	constraintMatrix := initAssignmentMatrix(model, ranges, config.getClusterSize())
-	return &CKAllocator {
-		ranges: ranges,
-		config: config,
-		model: model,
+	return &CKAllocator{
+		ranges:           ranges,
+		config:           config,
+		model:            model,
 		constraintMatrix: constraintMatrix,
 	}
 }
@@ -38,6 +39,28 @@ func (allocator *CKAllocator) addAssignLikeReplicasToDifferentNodesConstraint() 
 	for _rangeIndex := 0; _rangeIndex < len(allocator.constraintMatrix); _rangeIndex++ {
 		allocator.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(allocator.config.getReplicationFactor(), allocator.constraintMatrix[_rangeIndex]...))
 	}
+}
+
+func (allocator *CKAllocator) addAdhereToNodeDiskSpaceConstraint() {
+	rangeSizes := extractRangeSizes(allocator.ranges)
+	for nodeIndex := 0; nodeIndex < len(allocator.constraintMatrix[0]); nodeIndex++ {
+		nodeAssignments := make([]cpsatsolver.IntVar, len(allocator.constraintMatrix))
+		for _rangeIndex := 0; _rangeIndex < len(allocator.constraintMatrix); _rangeIndex++ {
+			nodeAssignments[_rangeIndex] = allocator.constraintMatrix[_rangeIndex][nodeIndex].(cpsatsolver.IntVar)
+		}
+		allocator.model.AddConstraints(cpsatsolver.NewLinearConstraint(
+			cpsatsolver.NewLinearExpr(nodeAssignments, rangeSizes, 0),
+			cpsatsolver.NewDomain(0, int64(allocator.config.nodes[nodeIndex].resources[DiskCapacityResource]))),
+		)
+	}
+}
+
+func extractRangeSizes(ranges []_range) []int64 {
+	sizes := make([]int64, len(ranges))
+	for index := 0; index < len(sizes); index++ {
+		sizes[index] = int64(ranges[index].demands[SizeOnDiskDemand])
+	}
+	return sizes
 }
 
 func (allocator *CKAllocator) allocate() (ok bool, assignments Assignments) {
