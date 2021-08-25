@@ -27,12 +27,12 @@ type CKAllocator struct {
 func initAllocator(ranges []_range, config *Configuration) Allocator {
 	model := cpsatsolver.NewModel()
 	constraintMatrix := initAssignmentMatrix(model, ranges, config.getClusterSize())
-	return Allocator(&CKAllocator {
-			ranges:           ranges,
-			config:           config,
-			model:            model,
-			constraintMatrix: constraintMatrix,
-		},
+	return Allocator(&CKAllocator{
+		ranges:           ranges,
+		config:           config,
+		model:            model,
+		constraintMatrix: constraintMatrix,
+	},
 	)
 }
 
