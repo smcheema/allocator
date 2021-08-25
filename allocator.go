@@ -24,15 +24,16 @@ type CKAllocator struct {
 	constraintMatrix ConstraintMatrix
 }
 
-func initAllocator(ranges []_range, config *Configuration) *CKAllocator {
+func initAllocator(ranges []_range, config *Configuration) Allocator {
 	model := cpsatsolver.NewModel()
 	constraintMatrix := initAssignmentMatrix(model, ranges, config.getClusterSize())
-	return &CKAllocator{
-		ranges:           ranges,
-		config:           config,
-		model:            model,
-		constraintMatrix: constraintMatrix,
-	}
+	return Allocator(&CKAllocator {
+			ranges:           ranges,
+			config:           config,
+			model:            model,
+			constraintMatrix: constraintMatrix,
+		},
+	)
 }
 
 func (allocator *CKAllocator) addAssignLikeReplicasToDifferentNodesConstraint() {

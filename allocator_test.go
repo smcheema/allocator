@@ -20,7 +20,7 @@ func TestGIVENReplicationConstraintTHENAppropriateReplicasAllocated(t *testing.T
 		}
 	}
 	for rangeIndex := range rangesToAllocate {
-		allocator := Allocator(initAllocator(rangesToAllocate[:rangeIndex], testConfig))
+		allocator := initAllocator(rangesToAllocate[:rangeIndex], testConfig)
 		allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 		status, allocation := allocator.allocate()
 		require.True(t, status)
@@ -45,7 +45,7 @@ func TestGIVENReplicationConstraintWHENInsufficientNodesTHENAllocationFails(t *t
 			demands: nil,
 		}
 	}
-	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator := initAllocator(rangesToAllocate, testConfig)
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	status, allocation := allocator.allocate()
 	require.False(t, status)
@@ -65,7 +65,7 @@ func TestGIVENReplicationConstraintWHENInfeasibleReplicationFactorTHENAllocation
 			demands: nil,
 		}
 	}
-	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator := initAllocator(rangesToAllocate, testConfig)
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	status, allocation := allocator.allocate()
 	require.False(t, status)
@@ -85,7 +85,7 @@ func TestGIVENCapacityConstraintWHENMultipleAllocationsPossibleTHENAllocationSuc
 			demands: Demands{SizeOnDiskDemand: ResourceAmount(initIndex)},
 		}
 	}
-	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator := initAllocator(rangesToAllocate, testConfig)
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	allocator.addAdhereToNodeDiskSpaceConstraint()
 	status, allocation := allocator.allocate()
@@ -110,7 +110,7 @@ func TestGIVENCapacityConstraintWHENSingleAllocationPossibleTHENAllocationSuccee
 			demands: Demands{SizeOnDiskDemand: rangeDiskSpaceDemands[initIndex]},
 		}
 	}
-	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator := initAllocator(rangesToAllocate, testConfig)
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	allocator.addAdhereToNodeDiskSpaceConstraint()
 	status, allocation := allocator.allocate()
@@ -144,7 +144,7 @@ func TestGIVENCapacityConstraintWHENInsufficientNodeCapacityTHENAllocationFails(
 			demands: Demands{SizeOnDiskDemand: rangeDiskSpaceDemands[initIndex]},
 		}
 	}
-	allocator := Allocator(initAllocator(rangesToAllocate, testConfig))
+	allocator := initAllocator(rangesToAllocate, testConfig)
 	allocator.addAssignLikeReplicasToDifferentNodesConstraint()
 	allocator.addAdhereToNodeDiskSpaceConstraint()
 	status, allocation := allocator.allocate()
