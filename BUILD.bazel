@@ -9,7 +9,7 @@ gazelle(
 
 go_library(
     name = "allocator",
-    srcs = ["allocator.go", "config.go"],
+    srcs = ["allocator.go"],
     importpath = "github.com/irfansharif/allocator",
     visibility = ["//visibility:public"],
     deps = ["@com_github_irfansharif_or_tools//cpsatsolver"],
@@ -18,9 +18,8 @@ go_library(
 go_test(
     name = "allocator_test",
     srcs = ["allocator_test.go"],
-    embed = [":allocator"],
     deps = [
-        "@com_github_irfansharif_or_tools//cpsatsolver",
+        ":allocator",
         "@com_github_stretchr_testify//require",
     ],
 )
