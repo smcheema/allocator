@@ -137,7 +137,7 @@ func rangeTagsAreSubsetOfNodeTags(tOne []string, tTwo []string) bool {
 		for tagIndex, nodeTag := range tTwo {
 			if rangeTag == nodeTag {
 				break
-			} else if tagIndex == len(tTwo) - 1 {
+			} else if tagIndex == len(tTwo)-1 {
 				return false
 			}
 		}

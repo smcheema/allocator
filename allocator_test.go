@@ -11,7 +11,7 @@ func TestGIVENReplicationConstraintTHENAppropriateReplicasAllocated(t *testing.T
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 3
 	const TestClusterSize = 64
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize),)
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -32,7 +32,7 @@ func TestGIVENReplicationConstraintWHENInsufficientNodesTHENAllocationFails(t *t
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 3
 	const TestClusterSize = 1
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize),)
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -47,7 +47,7 @@ func TestGIVENReplicationConstraintWHENInfeasibleReplicationFactorTHENAllocation
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 128
 	const TestClusterSize = 64
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize),)
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -62,7 +62,7 @@ func TestGIVENCapacityConstraintWHENMultipleAllocationsPossibleTHENAllocationSuc
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 1
 	const TestClusterSize = 8
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 8_000, 10_000), make([][]string, TestClusterSize),)
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 8_000, 10_000), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(
@@ -117,7 +117,7 @@ func TestGIVENCapacityConstraintWithReplicationWHENMultipleAllocationsPossibleTH
 	const ReplicationFactor = 3
 	const TestClusterSize = 3
 	clusterCapacities := []int64{70, 80, 90}
-	tags := [][]string {{}, {} , {}}
+	tags := [][]string{{}, {}, {}}
 	rangeDiskSpaceDemands := []int64{25, 10, 12, 11, 10}
 	builtCluster := buildCluster(TestClusterSize, clusterCapacities, tags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
@@ -144,7 +144,7 @@ func TestGIVENCapacityConstraintWithReplicationWHENInsufficientResourcesTHENAllo
 	const ReplicationFactor = 5
 	const TestClusterSize = 3
 	clusterCapacities := []int64{70, 80, 90}
-	tags := [][]string {{}, {} , {}}
+	tags := [][]string{{}, {}, {}}
 	rangeDiskSpaceDemands := []int64{25, 10, 12, 11, 10}
 	builtCluster := buildCluster(TestClusterSize, clusterCapacities, tags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
@@ -185,18 +185,18 @@ func TestGIVENTaggingConstraintWHENTagsExistOnNodesTHENAllocationSucceeds(t *tes
 	const RangeSizeLimit = 9
 	const ReplicationFactor = 1
 	const TestClusterSize = 3
-	nodeTags := [][]string {{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
-							{"az=us-east-1", "rangeType=legacy", "sqlStore=mySQL", "diskType=HDD"},
-							{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
-	rangeTags := [][]string {{"az=us-west-1"},
-							{"az=us-west-1", "rangeType=legacy"},
-							{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew"},
-							{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
-							{"diskType=HDD"},
-							{"sqlStore=mySQL", "diskType=HDD"},
-							{"az=us-east-1"},
-							{"diskType=SSD"},
-							{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
+	nodeTags := [][]string{{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+		{"az=us-east-1", "rangeType=legacy", "sqlStore=mySQL", "diskType=HDD"},
+		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
+	rangeTags := [][]string{{"az=us-west-1"},
+		{"az=us-west-1", "rangeType=legacy"},
+		{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew"},
+		{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+		{"diskType=HDD"},
+		{"sqlStore=mySQL", "diskType=HDD"},
+		{"az=us-east-1"},
+		{"diskType=SSD"},
+		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
 	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), nodeTags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
@@ -227,10 +227,10 @@ func TestGIVENTaggingConstraintWHENTagsDoNotExistOnNodesTHENAllocationFails(t *t
 	const RangeSizeLimit = 1
 	const ReplicationFactor = 1
 	const TestClusterSize = 3
-	nodeTags := [][]string {{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+	nodeTags := [][]string{{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
 		{"az=us-east-1", "rangeType=legacy", "sqlStore=mySQL", "diskType=HDD"},
 		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
-	rangeTags := [][]string {{"az=asia-in-1"}}
+	rangeTags := [][]string{{"az=asia-in-1"}}
 	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), nodeTags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
