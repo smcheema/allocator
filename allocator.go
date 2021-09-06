@@ -89,6 +89,12 @@ func WithNodeCapacityConstraint() ConstraintOption {
 	}
 }
 
+func WithTagMatchingConstraint() ConstraintOption {
+	return func(al *Allocator) {
+		al.adhereToNodeTagsConstraint()
+	}
+}
+
 func (a *Allocator) adhereToNodeResourcesConstraint() {
 	for _, re := range []Resource{DiskResource} {
 		for _, n := range a.nodes {
@@ -106,6 +112,37 @@ func (a *Allocator) adhereToNodeResourcesConstraint() {
 				cpsatsolver.NewDomain(0, capacity)))
 		}
 	}
+}
+
+func (a *Allocator) adhereToNodeTagsConstraint() {
+	for _, r := range a.ranges {
+		nodeThatAreUnAssignable := make([]cpsatsolver.Literal, 0, len(a.nodes))
+		for _, n := range a.nodes {
+			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
+				nodeThatAreUnAssignable = append(nodeThatAreUnAssignable, a.literal(r, n))
+			}
+		}
+		a.model.AddConstraints(
+			cpsatsolver.NewAllowedLiteralAssignmentsConstraint(
+				nodeThatAreUnAssignable,
+				[][]bool{
+					make([]bool, len(nodeThatAreUnAssignable)),
+				}),
+		)
+	}
+}
+
+func rangeTagsAreSubsetOfNodeTags(tOne []string, tTwo []string) bool {
+	for _, rangeTag := range tOne {
+		for tagIndex, nodeTag := range tTwo {
+			if rangeTag == nodeTag {
+				break
+			} else if tagIndex == len(tTwo)-1 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (a *Allocator) Allocate(constraintOptions ...ConstraintOption) (ok bool, assignments map[RangeID][]NodeID) {

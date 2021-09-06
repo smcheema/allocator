@@ -11,7 +11,7 @@ func TestGIVENReplicationConstraintTHENAppropriateReplicasAllocated(t *testing.T
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 3
 	const TestClusterSize = 64
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1))
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -32,7 +32,7 @@ func TestGIVENReplicationConstraintWHENInsufficientNodesTHENAllocationFails(t *t
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 3
 	const TestClusterSize = 1
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1))
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -47,7 +47,7 @@ func TestGIVENReplicationConstraintWHENInfeasibleReplicationFactorTHENAllocation
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 128
 	const TestClusterSize = 64
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1))
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(allocator.RangeID(initIndex), ReplicationFactor, nil, nil)
@@ -62,7 +62,7 @@ func TestGIVENCapacityConstraintWHENMultipleAllocationsPossibleTHENAllocationSuc
 	const RangeSizeLimit = 20
 	const ReplicationFactor = 1
 	const TestClusterSize = 8
-	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 8_000, 10_000))
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 8_000, 10_000), make([][]string, TestClusterSize))
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(
@@ -84,7 +84,7 @@ func TestGIVENCapacityConstraintWHENSingleAllocationPossibleTHENAllocationSuccee
 	const RangeSizeLimit = 10
 	const ReplicationFactor = 1
 	const TestClusterSize = 3
-	builtCluster := buildCluster(TestClusterSize, []int64{70, 80, 90})
+	builtCluster := buildCluster(TestClusterSize, []int64{70, 80, 90}, [][]string{{}, {}, {}})
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	rangeDiskSpaceDemands := [RangeSizeLimit]int64{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
 	for initIndex := range rangesToAllocate {
@@ -117,8 +117,9 @@ func TestGIVENCapacityConstraintWithReplicationWHENMultipleAllocationsPossibleTH
 	const ReplicationFactor = 3
 	const TestClusterSize = 3
 	clusterCapacities := []int64{70, 80, 90}
+	tags := [][]string{{}, {}, {}}
 	rangeDiskSpaceDemands := []int64{25, 10, 12, 11, 10}
-	builtCluster := buildCluster(TestClusterSize, clusterCapacities)
+	builtCluster := buildCluster(TestClusterSize, clusterCapacities, tags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(
@@ -143,8 +144,9 @@ func TestGIVENCapacityConstraintWithReplicationWHENInsufficientResourcesTHENAllo
 	const ReplicationFactor = 5
 	const TestClusterSize = 3
 	clusterCapacities := []int64{70, 80, 90}
+	tags := [][]string{{}, {}, {}}
 	rangeDiskSpaceDemands := []int64{25, 10, 12, 11, 10}
-	builtCluster := buildCluster(TestClusterSize, clusterCapacities)
+	builtCluster := buildCluster(TestClusterSize, clusterCapacities, tags)
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	for initIndex := range rangesToAllocate {
 		rangesToAllocate[initIndex] = allocator.NewRange(
@@ -163,7 +165,7 @@ func TestGIVENCapacityConstraintWHENInsufficientNodeCapacityTHENAllocationFails(
 	const RangeSizeLimit = 10
 	const ReplicationFactor = 1
 	const TestClusterSize = 3
-	builtCluster := buildCluster(TestClusterSize, []int64{70, 80, 80})
+	builtCluster := buildCluster(TestClusterSize, []int64{70, 80, 80}, [][]string{{}, {}, {}})
 	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
 	rangeDiskSpaceDemands := [RangeSizeLimit]int64{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
 	for initIndex := range rangesToAllocate {
@@ -179,12 +181,77 @@ func TestGIVENCapacityConstraintWHENInsufficientNodeCapacityTHENAllocationFails(
 	require.Nil(t, allocation)
 }
 
-func buildCluster(clusterSize int64, nodeCapacities []int64) []allocator.Node {
+func TestGIVENTaggingConstraintWHENTagsExistOnNodesTHENAllocationSucceeds(t *testing.T) {
+	const RangeSizeLimit = 9
+	const ReplicationFactor = 1
+	const TestClusterSize = 3
+	nodeTags := [][]string{{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+		{"az=us-east-1", "rangeType=legacy", "sqlStore=mySQL", "diskType=HDD"},
+		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
+	rangeTags := [][]string{{"az=us-west-1"},
+		{"az=us-west-1", "rangeType=legacy"},
+		{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew"},
+		{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+		{"diskType=HDD"},
+		{"sqlStore=mySQL", "diskType=HDD"},
+		{"az=us-east-1"},
+		{"diskType=SSD"},
+		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), nodeTags)
+	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
+	for initIndex := range rangesToAllocate {
+		rangesToAllocate[initIndex] = allocator.NewRange(
+			allocator.RangeID(initIndex),
+			ReplicationFactor,
+			rangeTags[initIndex],
+			nil)
+	}
+	expectedAllocation := map[allocator.RangeID][]allocator.NodeID{
+		0: {0},
+		1: {0},
+		2: {0},
+		3: {0},
+		4: {1},
+		5: {1},
+		6: {1},
+		7: {2},
+		8: {2},
+	}
+	underTest := allocator.New(rangesToAllocate, builtCluster)
+	status, allocation := underTest.Allocate(allocator.WithTagMatchingConstraint())
+	require.True(t, status)
+	require.Equal(t, expectedAllocation, allocation)
+}
+
+func TestGIVENTaggingConstraintWHENTagsDoNotExistOnNodesTHENAllocationFails(t *testing.T) {
+	const RangeSizeLimit = 1
+	const ReplicationFactor = 1
+	const TestClusterSize = 3
+	nodeTags := [][]string{{"az=us-west-1", "rangeType=legacy", "rangeType=brandNew", "sqlStore=Oracle"},
+		{"az=us-east-1", "rangeType=legacy", "sqlStore=mySQL", "diskType=HDD"},
+		{"az=asia-jp-1", "rangeType=brandNew", "sqlStore=postgreSQL", "diskType=SSD"}}
+	rangeTags := [][]string{{"az=asia-in-1"}}
+	builtCluster := buildCluster(TestClusterSize, nodeCapacitySupplier(TestClusterSize, 0, 1), nodeTags)
+	rangesToAllocate := make([]allocator.Range, RangeSizeLimit)
+	for initIndex := range rangesToAllocate {
+		rangesToAllocate[initIndex] = allocator.NewRange(
+			allocator.RangeID(initIndex),
+			ReplicationFactor,
+			rangeTags[initIndex],
+			nil)
+	}
+	underTest := allocator.New(rangesToAllocate, builtCluster)
+	status, allocation := underTest.Allocate(allocator.WithTagMatchingConstraint())
+	require.False(t, status)
+	require.Nil(t, allocation)
+}
+
+func buildCluster(clusterSize int64, nodeCapacities []int64, tags [][]string) []allocator.Node {
 	cluster := make([]allocator.Node, clusterSize)
 	for index := 0; index < len(cluster); index++ {
 		cluster[index] = allocator.NewNode(
 			allocator.NodeID(index),
-			nil,
+			tags[index],
 			map[allocator.Resource]int64{allocator.DiskResource: nodeCapacities[index]})
 	}
 	return cluster
