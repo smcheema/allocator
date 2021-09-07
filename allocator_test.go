@@ -54,7 +54,7 @@ func TestCapacity(t *testing.T) {
 		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: int64(i)}
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes).WithNodeCapacityConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -73,7 +73,7 @@ func TestCapacityWithCappedSizes(t *testing.T) {
 		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: rangeSizeDemands[i]}
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes).WithNodeCapacityConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	expectedAllocation := map[allocator.RangeID][]allocator.NodeID{
 		0: {2},
 		1: {1},
@@ -102,7 +102,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	}
 	nodes := buildNodes(numNodes, clusterCapacities, buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes).WithNodeCapacityConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -124,7 +124,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 	}
 	nodes := buildNodes(numNodes, clusterCapacities, buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes).WithNodeCapacityConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -140,7 +140,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: rangeSizeDemands[i]}
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes).WithNodeCapacityConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -166,7 +166,7 @@ func TestTagsWithViableNodes(t *testing.T) {
 		1: {1},
 		2: {0},
 	}
-	status, allocation := allocator.New(ranges, nodes).WithTagMatchingConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithTagMatching()).Allocate()
 	require.True(t, status)
 	require.Equal(t, expectedAllocation, allocation)
 }
@@ -179,7 +179,7 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	rangeTags := [][]string{{"tag=B"}}
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), nodeTags)
 	ranges := buildRanges(numRanges, rf, make([]map[allocator.Resource]int64, numRanges), rangeTags)
-	status, allocation := allocator.New(ranges, nodes).WithTagMatchingConstraint().Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithTagMatching()).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
