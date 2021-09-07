@@ -9,8 +9,6 @@ type NodeID int64
 type RangeID int64
 type Resource int
 
-type ConstraintOption func(*Allocator)
-
 const (
 	DiskResource Resource = iota
 )
@@ -28,11 +26,19 @@ type Node struct {
 	resources map[Resource]int64
 }
 
+type options struct {
+	withNodeCapacity bool
+	withTagAffinity  bool
+}
+
+type Option func(*options)
+
 type Allocator struct {
 	ranges     []Range
 	nodes      []Node
 	model      *cpsatsolver.Model
 	assignment map[RangeID]map[NodeID]cpsatsolver.Literal
+	opts       options
 }
 
 func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Range {
@@ -52,7 +58,7 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 	}
 }
 
-func New(ranges []Range, nodes []Node) *Allocator {
+func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	model := cpsatsolver.NewModel()
 	assignment := make(map[RangeID]map[NodeID]cpsatsolver.Literal)
 	for _, r := range ranges {
@@ -61,12 +67,17 @@ func New(ranges []Range, nodes []Node) *Allocator {
 			assignment[r.id][n.id] = model.NewLiteral(fmt.Sprintf("r%d-on-n%d", r.id, n.id))
 		}
 	}
+	defaultOptions := options{}
+	for _, opt := range opts {
+		opt(&defaultOptions)
+	}
 
 	return &Allocator{
 		ranges:     ranges,
 		nodes:      nodes,
 		model:      model,
 		assignment: assignment,
+		opts:       defaultOptions,
 	}
 }
 
@@ -83,19 +94,19 @@ func (a *Allocator) literal(r Range, n Node) cpsatsolver.Literal {
 	return a.assignment[r.id][n.id]
 }
 
-func WithNodeCapacityConstraint() ConstraintOption {
-	return func(al *Allocator) {
-		al.adhereToNodeResourcesConstraint()
+func WithNodeCapacity() Option {
+	return func(opt *options) {
+		opt.withNodeCapacity = true
 	}
 }
 
-func WithTagMatchingConstraint() ConstraintOption {
-	return func(al *Allocator) {
-		al.adhereToNodeTagsConstraint()
+func WithTagMatching() Option {
+	return func(opt *options) {
+		opt.withTagAffinity = true
 	}
 }
 
-func (a *Allocator) adhereToNodeResourcesConstraint() {
+func (a *Allocator) adhereToNodeResources() {
 	for _, re := range []Resource{DiskResource} {
 		for _, n := range a.nodes {
 			capacity := n.resources[re]
@@ -114,40 +125,43 @@ func (a *Allocator) adhereToNodeResourcesConstraint() {
 	}
 }
 
-func (a *Allocator) adhereToNodeTagsConstraint() {
+func (a *Allocator) adhereToNodeTags() {
 	for _, r := range a.ranges {
-		nodeThatAreUnAssignable := make([]cpsatsolver.Literal, 0, len(a.nodes))
+		unAssignableNodes := make([]cpsatsolver.Literal, 0, len(a.nodes))
 		for _, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
-				nodeThatAreUnAssignable = append(nodeThatAreUnAssignable, a.literal(r, n))
+				unAssignableNodes = append(unAssignableNodes, a.literal(r, n))
 			}
 		}
 		a.model.AddConstraints(
-			cpsatsolver.NewAllowedLiteralAssignmentsConstraint(
-				nodeThatAreUnAssignable,
-				[][]bool{
-					make([]bool, len(nodeThatAreUnAssignable)),
-				}),
+			cpsatsolver.NewExactlyKConstraint(0, unAssignableNodes...),
 		)
 	}
 }
 
-func rangeTagsAreSubsetOfNodeTags(tOne []string, tTwo []string) bool {
-	for _, rangeTag := range tOne {
-		for tagIndex, nodeTag := range tTwo {
+func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
+	for _, rangeTag := range rangeTags {
+		foundMatch := false
+		for _, nodeTag := range nodeTags {
 			if rangeTag == nodeTag {
+				foundMatch = true
 				break
-			} else if tagIndex == len(tTwo)-1 {
-				return false
 			}
+		}
+		if !foundMatch {
+			return false
 		}
 	}
 	return true
 }
 
-func (a *Allocator) Allocate(constraintOptions ...ConstraintOption) (ok bool, assignments map[RangeID][]NodeID) {
-	for _, opt := range constraintOptions {
-		opt(a)
+func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
+	if a.opts.withNodeCapacity {
+		a.adhereToNodeResources()
+	}
+
+	if a.opts.withTagAffinity {
+		a.adhereToNodeTags()
 	}
 
 	for _, r := range a.ranges {
