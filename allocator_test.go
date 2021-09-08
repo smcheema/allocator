@@ -22,6 +22,64 @@ func TestReplication(t *testing.T) {
 	}
 }
 
+func TestMaxChurn(t *testing.T) {
+	const numRanges = 20
+	const rf = 3
+	const numNodes = 64
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(numNodes))
+	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes).Allocate()
+	require.True(t, status)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
+	}
+
+	const numRanges2 = 25
+	const rf2 = 2
+	const numNodes2 = 32
+	const maxChurn = 30
+	nodes2 := buildNodes(numNodes2, nodeCapacitySupplier(numNodes2, 0, 1), buildEmptyTags(numNodes2))
+	ranges2 := buildRanges(numRanges2, rf2, buildEmptyDemands(numRanges2), buildEmptyTags(numRanges2))
+	status2, allocation2 := allocator.New(ranges2, nodes2).AllocateBetter(allocation, maxChurn)
+	require.True(t, status2)
+	for _, nodeAssignments := range allocation2 {
+		require.Equal(t, len(nodeAssignments), rf2)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes2))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes2))
+	}
+}
+
+func TestMaxChurn2(t *testing.T) {
+	const numRanges = 5
+	const rf = 1
+	const numNodes = 5
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(numNodes))
+	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes).Allocate()
+	require.True(t, status)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
+	}
+
+	const numRanges2 = 10
+	const rf2 = 1
+	const numNodes2 = 10
+	const maxChurn = 5
+	nodes2 := buildNodes(numNodes2, nodeCapacitySupplier(numNodes2, 0, 1), buildEmptyTags(numNodes2))
+	ranges2 := buildRanges(numRanges2, rf2, buildEmptyDemands(numRanges2), buildEmptyTags(numRanges2))
+	status2, allocation2 := allocator.New(ranges2, nodes2).AllocateBetter(allocation, maxChurn)
+	require.True(t, status2)
+	for _, nodeAssignments := range allocation2 {
+		require.Equal(t, len(nodeAssignments), rf2)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes2))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes2))
+	}
+}
+
 func TestReplicationWithInsufficientNodes(t *testing.T) {
 	const numRanges = 20
 	const rf = 3

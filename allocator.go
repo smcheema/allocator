@@ -184,3 +184,73 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 	}
 	return true, res
 }
+
+func findInList(intList []NodeID, target int) int {
+	for i, k := range intList {
+		if int(k) == target {
+			return i
+		}
+	}
+	return -1
+}
+
+func (a *Allocator) AllocateBetter(oldAssignments map[RangeID][]NodeID, maxChurn int64) (ok bool, assignments map[RangeID][]NodeID) {
+
+	var vars = make([]cpsatsolver.IntVar, 0, len(a.ranges) * len(a.nodes))
+	var coeffs = make([]int64, 0, len(a.ranges) * len(a.nodes))
+
+	for _, r := range a.ranges {
+		for _, n := range a.nodes {
+			// Sum of the difference of all assignments to be minimized or less than max churn
+			if findInList(oldAssignments[r.id], int(n.id)) != -1 && oldAssignments[r.id][findInList(oldAssignments[r.id], int(n.id))] == n.id {
+				prevLiteral := a.model.NewLiteral(fmt.Sprintf("Previous: r%d-on-n%d = 1", r.id, n.id))
+				a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(1, prevLiteral))
+
+				// 1
+				vars = append(vars, prevLiteral)
+				coeffs = append(coeffs, 1)
+
+				// -a.literal(r, n)
+				vars = append(vars, a.literal(r, n))
+				coeffs = append(coeffs, -1)
+
+				// 1 - a.literal(r, n)
+			} else {
+				// a.literal(r, n)
+				vars = append(vars, a.literal(r, n))
+				coeffs = append(coeffs, 1)
+
+				// -0 (not implemented cause doesn't affect anything)
+
+				// a.literal(r, n) - 0
+			}
+
+		}
+	}
+
+	churnExpression := cpsatsolver.NewLinearExpr(vars, coeffs, 0)
+	a.model.Minimize(churnExpression)
+	a.model.AddConstraints(cpsatsolver.NewLinearConstraint(
+		churnExpression,
+		cpsatsolver.NewDomain(0, maxChurn)))
+
+	for _, r := range a.ranges {
+		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
+	}
+
+	result := a.model.Solve()
+	if result.Infeasible() || result.Invalid() {
+		return false, nil
+	}
+
+	res := make(map[RangeID][]NodeID)
+	for _, r := range a.ranges {
+		for _, n := range a.nodes {
+			allocated := result.BooleanValue(a.literal(r, n))
+			if allocated {
+				res[r.id] = append(res[r.id], n.id)
+			}
+		}
+	}
+	return true, res
+}
