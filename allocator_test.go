@@ -192,11 +192,6 @@ func TestMaxChurnWithIncreasedNodeCount(t *testing.T) {
 	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes).Allocate()
 	require.True(t, status)
-	for _, nodeAssignments := range allocation {
-		require.Equal(t, len(nodeAssignments), rf)
-		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
-		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
-	}
 
 	const newNumRanges = 25
 	const newRF = 2
@@ -221,11 +216,6 @@ func TestMaxChurnWithDecreasedNodeCount(t *testing.T) {
 	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes).Allocate()
 	require.True(t, status)
-	for _, nodeAssignments := range allocation {
-		require.Equal(t, len(nodeAssignments), rf)
-		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
-		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
-	}
 
 	const newNumRanges = 10
 	const newRF = 1
@@ -250,11 +240,6 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes).Allocate()
 	require.True(t, status)
-	for _, nodeAssignments := range allocation {
-		require.Equal(t, len(nodeAssignments), rf)
-		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
-		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
-	}
 
 	const newNumRanges = 60
 	const newRF = 3
