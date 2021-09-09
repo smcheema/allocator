@@ -26,9 +26,17 @@ type Node struct {
 	resources map[Resource]int64
 }
 
+type churnOptions struct {
+	WithMinimalChurn bool
+	withMaxChurn     bool
+	maxChurn         uint
+	prevAssignment   map[RangeID][]NodeID
+}
+
 type options struct {
 	withNodeCapacity bool
 	withTagAffinity  bool
+	churnOptions     churnOptions
 }
 
 type Option func(*options)
@@ -106,6 +114,20 @@ func WithTagMatching() Option {
 	}
 }
 
+func WithMinimalChurn(prevAssignment map[RangeID][]NodeID) Option {
+	return func(opt *options) {
+		opt.churnOptions.WithMinimalChurn = true
+		opt.churnOptions.prevAssignment = prevAssignment
+	}
+}
+
+func WithMaxChurnSet(maxChurn uint) Option {
+	return func(opt *options) {
+		opt.churnOptions.withMaxChurn = true
+		opt.churnOptions.maxChurn = maxChurn
+	}
+}
+
 func (a *Allocator) adhereToNodeResources() {
 	for _, re := range []Resource{DiskResource} {
 		for _, n := range a.nodes {
@@ -155,6 +177,17 @@ func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
 	return true
 }
 
+func toMap(t map[RangeID][]NodeID) map[RangeID]map[NodeID]int {
+	ret := make(map[RangeID]map[NodeID]int)
+	for k, v := range t {
+		ret[k] = make(map[NodeID]int)
+		for _, n := range v {
+			ret[k][n] = 1
+		}
+	}
+	return ret
+}
+
 func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 	if a.opts.withNodeCapacity {
 		a.adhereToNodeResources()
@@ -168,74 +201,30 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
 	}
 
-	result := a.model.Solve()
-	if result.Infeasible() || result.Invalid() {
-		return false, nil
-	}
+	if a.opts.churnOptions.WithMinimalChurn {
+		var vars = make([]cpsatsolver.IntVar, 0, 2*len(a.ranges)*len(a.nodes))
+		var coefficients = make([]int64, 0, len(a.ranges)*len(a.nodes))
+		o := toMap(a.opts.churnOptions.prevAssignment)
 
-	res := make(map[RangeID][]NodeID)
-	for _, r := range a.ranges {
-		for _, n := range a.nodes {
-			allocated := result.BooleanValue(a.literal(r, n))
-			if allocated {
-				res[r.id] = append(res[r.id], n.id)
+		for _, r := range a.ranges {
+			for _, n := range a.nodes {
+				termCoefficient := int64(1)
+				if val := o[r.id][n.id]; val == 1 {
+					prevAllocation := a.model.NewIntVar(1, 1, fmt.Sprintf("Previous: r%d-on-n%d", r.id, n.id))
+					vars = append(vars, prevAllocation)
+					coefficients = append(coefficients, 1)
+					termCoefficient = -1
+				}
+				vars = append(vars, a.literal(r, n))
+				coefficients = append(coefficients, termCoefficient)
 			}
 		}
-	}
-	return true, res
-}
 
-func findInList(intList []NodeID, target int) int {
-	for i, k := range intList {
-		if int(k) == target {
-			return i
+		churnExpression := cpsatsolver.NewLinearExpr(vars, coefficients, 0)
+		a.model.Minimize(churnExpression)
+		if a.opts.churnOptions.withMaxChurn {
+			a.model.AddConstraints(cpsatsolver.NewLinearConstraint(churnExpression, cpsatsolver.NewDomain(0, int64(a.opts.churnOptions.maxChurn))))
 		}
-	}
-	return -1
-}
-
-func (a *Allocator) AllocateBetter(oldAssignments map[RangeID][]NodeID, maxChurn int64) (ok bool, assignments map[RangeID][]NodeID) {
-
-	var vars = make([]cpsatsolver.IntVar, 0, len(a.ranges) * len(a.nodes))
-	var coeffs = make([]int64, 0, len(a.ranges) * len(a.nodes))
-
-	for _, r := range a.ranges {
-		for _, n := range a.nodes {
-			// Sum of the difference of all assignments to be minimized or less than max churn
-			if findInList(oldAssignments[r.id], int(n.id)) != -1 && oldAssignments[r.id][findInList(oldAssignments[r.id], int(n.id))] == n.id {
-				prevLiteral := a.model.NewLiteral(fmt.Sprintf("Previous: r%d-on-n%d = 1", r.id, n.id))
-				a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(1, prevLiteral))
-
-				// 1
-				vars = append(vars, prevLiteral)
-				coeffs = append(coeffs, 1)
-
-				// -a.literal(r, n)
-				vars = append(vars, a.literal(r, n))
-				coeffs = append(coeffs, -1)
-
-				// 1 - a.literal(r, n)
-			} else {
-				// a.literal(r, n)
-				vars = append(vars, a.literal(r, n))
-				coeffs = append(coeffs, 1)
-
-				// -0 (not implemented cause doesn't affect anything)
-
-				// a.literal(r, n) - 0
-			}
-
-		}
-	}
-
-	churnExpression := cpsatsolver.NewLinearExpr(vars, coeffs, 0)
-	a.model.Minimize(churnExpression)
-	a.model.AddConstraints(cpsatsolver.NewLinearConstraint(
-		churnExpression,
-		cpsatsolver.NewDomain(0, maxChurn)))
-
-	for _, r := range a.ranges {
-		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
 	}
 
 	result := a.model.Solve()
