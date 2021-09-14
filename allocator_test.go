@@ -199,7 +199,7 @@ func TestMaxChurnWithIncreasedNodeCount(t *testing.T) {
 	const maxChurn = 30
 	newNodes := buildNodes(newNumNodes, nodeCapacitySupplier(newNumNodes, 0, 1), buildEmptyTags(newNumNodes))
 	newRanges := buildRanges(newNumRanges, newRF, buildEmptyDemands(newNumRanges), buildEmptyTags(newNumRanges))
-	status, allocation = allocator.New(newRanges, newNodes, allocator.WithMinimalChurn(allocation), allocator.WithMaxChurnSet(maxChurn)).Allocate()
+	status, allocation = allocator.New(newRanges, newNodes, allocator.WithChurnConstraint(allocation, true, maxChurn)).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), newRF)
@@ -223,7 +223,7 @@ func TestMaxChurnWithDecreasedNodeCount(t *testing.T) {
 	const maxChurn = 5
 	newNodes := buildNodes(newNumNodes, nodeCapacitySupplier(newNumNodes, 0, 1), buildEmptyTags(newNumNodes))
 	newRanges := buildRanges(newNumRanges, newRF, buildEmptyDemands(newNumRanges), buildEmptyTags(newNumRanges))
-	status, allocation = allocator.New(newRanges, newNodes, allocator.WithMinimalChurn(allocation), allocator.WithMaxChurnSet(maxChurn)).Allocate()
+	status, allocation = allocator.New(newRanges, newNodes, allocator.WithChurnConstraint(allocation, true, maxChurn)).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), newRF)
@@ -247,7 +247,7 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	const maxChurn = 1
 	newNodes := buildNodes(newNumNodes, nodeCapacitySupplier(newNumNodes, 0, 1), buildEmptyTags(newNumNodes))
 	newRanges := buildRanges(newNumRanges, newRF, buildEmptyDemands(newNumRanges), buildEmptyTags(newNumRanges))
-	status, allocation = allocator.New(newRanges, newNodes, allocator.WithMinimalChurn(allocation), allocator.WithMaxChurnSet(maxChurn)).Allocate()
+	status, allocation = allocator.New(newRanges, newNodes, allocator.WithChurnConstraint(allocation, true, maxChurn)).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }

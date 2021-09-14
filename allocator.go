@@ -3,6 +3,7 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/or-tools/cpsatsolver"
+	"math"
 )
 
 type NodeID int64
@@ -29,7 +30,7 @@ type Node struct {
 type churnOptions struct {
 	WithMinimalChurn bool
 	withMaxChurn     bool
-	maxChurn         uint
+	maxChurn         int64
 	prevAssignment   map[RangeID][]NodeID
 }
 
@@ -114,16 +115,14 @@ func WithTagMatching() Option {
 	}
 }
 
-func WithMinimalChurn(prevAssignment map[RangeID][]NodeID) Option {
+func WithChurnConstraint(prevAssignment map[RangeID][]NodeID, minimizeToggle bool, maxChurn int64) Option {
 	return func(opt *options) {
-		opt.churnOptions.WithMinimalChurn = true
 		opt.churnOptions.prevAssignment = prevAssignment
-	}
-}
-
-func WithMaxChurnSet(maxChurn uint) Option {
-	return func(opt *options) {
-		opt.churnOptions.withMaxChurn = true
+		opt.churnOptions.WithMinimalChurn = minimizeToggle
+		opt.churnOptions.withMaxChurn = maxChurn < math.MaxInt64
+		if maxChurn < 0 {
+			panic("max churn should be more than 0")
+		}
 		opt.churnOptions.maxChurn = maxChurn
 	}
 }
@@ -201,31 +200,7 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
 	}
 
-	if a.opts.churnOptions.WithMinimalChurn {
-		var vars = make([]cpsatsolver.IntVar, 0, 2*len(a.ranges)*len(a.nodes))
-		var coefficients = make([]int64, 0, len(a.ranges)*len(a.nodes))
-		o := toMap(a.opts.churnOptions.prevAssignment)
-
-		for _, r := range a.ranges {
-			for _, n := range a.nodes {
-				termCoefficient := int64(1)
-				if val := o[r.id][n.id]; val == 1 {
-					prevAllocation := a.model.NewIntVar(1, 1, fmt.Sprintf("Previous: r%d-on-n%d", r.id, n.id))
-					vars = append(vars, prevAllocation)
-					coefficients = append(coefficients, 1)
-					termCoefficient = -1
-				}
-				vars = append(vars, a.literal(r, n))
-				coefficients = append(coefficients, termCoefficient)
-			}
-		}
-
-		churnExpression := cpsatsolver.NewLinearExpr(vars, coefficients, 0)
-		a.model.Minimize(churnExpression)
-		if a.opts.churnOptions.withMaxChurn {
-			a.model.AddConstraints(cpsatsolver.NewLinearConstraint(churnExpression, cpsatsolver.NewDomain(0, int64(a.opts.churnOptions.maxChurn))))
-		}
-	}
+	a.adhereToMinimalChurnConstraint()
 
 	result := a.model.Solve()
 	if result.Infeasible() || result.Invalid() {
@@ -242,4 +217,67 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		}
 	}
 	return true, res
+}
+
+// Minimize the difference absolute difference from the previous assignment and the current assignment
+func (a *Allocator) adhereToMinimalChurnConstraint() {
+
+	if !a.opts.churnOptions.WithMinimalChurn && !a.opts.churnOptions.withMaxChurn {
+		return
+	}
+
+	var vars = make([]cpsatsolver.IntVar, 0, 2*len(a.ranges)*len(a.nodes))
+	var coefficients = make([]int64, 0, len(a.ranges)*len(a.nodes))
+	o := toMap(a.opts.churnOptions.prevAssignment)
+
+	for _, r := range a.ranges {
+		for _, n := range a.nodes {
+			termCoefficient := int64(1)
+			if val := o[r.id][n.id]; val == 1 {
+				prevAllocation := a.model.NewIntVar(1, 1, fmt.Sprintf("Previous: r%d-on-n%d", r.id, n.id))
+				vars = append(vars, prevAllocation)
+				coefficients = append(coefficients, 1)
+				termCoefficient = -1
+			}
+			vars = append(vars, a.literal(r, n))
+			coefficients = append(coefficients, termCoefficient)
+		}
+	}
+
+	churnExpression := cpsatsolver.NewLinearExpr(vars, coefficients, 0)
+	if a.opts.churnOptions.WithMinimalChurn {
+		a.model.Minimize(churnExpression)
+	}
+	if a.opts.churnOptions.withMaxChurn {
+		a.model.AddConstraints(cpsatsolver.NewLinearConstraint(churnExpression, cpsatsolver.NewDomain(math.MinInt64, a.opts.churnOptions.maxChurn)))
+	}
+}
+
+// Minimize the number of nodes which were zero but would now become 1
+func (a *Allocator) adhereToMinimalChurnConstraint2() {
+
+	if !a.opts.churnOptions.WithMinimalChurn && !a.opts.churnOptions.withMaxChurn {
+		return
+	}
+
+	var vars = make([]cpsatsolver.IntVar, 0, len(a.ranges)*len(a.nodes)/2)
+	var coefficients = make([]int64, 0, len(a.ranges)*len(a.nodes)/2)
+	o := toMap(a.opts.churnOptions.prevAssignment)
+
+	for _, r := range a.ranges {
+		for _, n := range a.nodes {
+			if val := o[r.id][n.id]; val == 0 {
+				vars = append(vars, a.literal(r, n))
+				coefficients = append(coefficients, 1)
+			}
+		}
+	}
+
+	churnExpression := cpsatsolver.NewLinearExpr(vars, coefficients, 0)
+	if a.opts.churnOptions.WithMinimalChurn {
+		a.model.Minimize(churnExpression)
+	}
+	if a.opts.churnOptions.withMaxChurn {
+		a.model.AddConstraints(cpsatsolver.NewLinearConstraint(churnExpression, cpsatsolver.NewDomain(math.MinInt64, a.opts.churnOptions.maxChurn)))
+	}
 }
