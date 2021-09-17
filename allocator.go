@@ -31,7 +31,7 @@ type churnOptions struct {
 	withMinimalChurn bool
 	withMaxChurn     bool
 	maxChurn         int64
-	prevAssignment   map[RangeID][]NodeID
+	prevAssignment   map[RangeID]map[NodeID]int
 }
 
 type options struct {
@@ -120,7 +120,7 @@ func WithTagMatching() Option {
 // If minimizeChurn == true it will try to minimize the churn
 func WithChurnConstraint(prevAssignment map[RangeID][]NodeID, minimizeChurn bool, maxChurn int64) Option {
 	return func(opt *options) {
-		opt.churnOptions.prevAssignment = prevAssignment
+		opt.churnOptions.prevAssignment = toMap(prevAssignment)
 		opt.churnOptions.withMinimalChurn = minimizeChurn
 		opt.churnOptions.withMaxChurn = maxChurn < math.MaxInt64
 		if maxChurn < 0 {
@@ -230,7 +230,7 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 func (a *Allocator) adhereToChurnConstraint() {
 
 	var toMinimizeTheSumLiterals = make([]cpsatsolver.Literal, 0, len(a.ranges)*len(a.nodes))
-	prevAssignmentMap := toMap(a.opts.churnOptions.prevAssignment)
+	prevAssignmentMap := a.opts.churnOptions.prevAssignment
 
 	for _, r := range a.ranges {
 		for _, n := range a.nodes {
