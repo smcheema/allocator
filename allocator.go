@@ -3,14 +3,18 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
+	"math"
+	"sort"
 )
 
 type NodeID int64
 type RangeID int64
 type Resource int
+type Allocation map[RangeID][]NodeID
 
 const (
 	DiskResource Resource = iota
+	Qps
 )
 
 type Range struct {
@@ -34,17 +38,10 @@ type options struct {
 type Option func(*options)
 
 type Allocator struct {
-	ranges     []Range
-	nodes      []Node
+	ranges     map[RangeID]Range
+	nodes      map[NodeID]Node
 	model      *solver.Model
-	// map[RangeId]map[NodeId]Literal
-	// n x r variables
-	// 1000, 10k, 10^8 variables
-	// dependency on nodes --> having it rely soley on ranges
-	// index into the range slice, maps to an IntVar
-	// where does this range end up? Which node do I put this range onto.
-	// sum of all replication factors
-	assignment map[int][]solver.IntVar
+	assignment map[RangeID][]solver.IntVar
 	opts       options
 }
 
@@ -66,30 +63,73 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 }
 
 func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
-	model := solver.NewModel("")
-	assignment := make(map[int][]solver.IntVar)
-	for i, r := range ranges {
-		assignment[i] = make([]solver.IntVar, r.rf)
-		for j := range assignment[i] {
-			assignment[i][j] = model.NewIntVar(0, int64(len(nodes)-1), "")
+	model := solver.NewModel("Lé-Allocator")
+	assignment := make(map[RangeID][]solver.IntVar)
+	sort.Slice(nodes,
+		func(i, j int) bool {
+			return nodes[i].id < nodes[j].id
+		},
+	)
+	nIdDomain := make([]int64, 0)
+
+	startIndex, endIndex := 0, 1
+
+	for endIndex < len(nodes) {
+		if nodes[endIndex].id != nodes[endIndex - 1].id + 1 {
+			nIdDomain = append(nIdDomain, int64(nodes[startIndex].id), int64(nodes[endIndex - 1].id))
+			startIndex = endIndex
+		}
+		endIndex++
+	}
+	if len(nodes) > 0 {
+		nIdDomain = append(nIdDomain, int64(nodes[startIndex].id), int64(nodes[endIndex-1].id))
+	}
+
+	for _, r := range ranges {
+		assignment[r.id] = make([]solver.IntVar, r.rf)
+		for j := range assignment[r.id] {
+			assignment[r.id][j] = model.NewIntVarFromDomain(
+				solver.NewDomain(nIdDomain[0], nIdDomain[1], nIdDomain[2:]...),
+				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
+
 	defaultOptions := options{}
 	for _, opt := range opts {
 		opt(&defaultOptions)
 	}
 
+	idToRange := make(map[RangeID]Range)
+	for _, r := range ranges {
+		idToRange[r.id] = r
+	}
+
+	idToNode := make(map[NodeID]Node)
+	for _, n := range nodes {
+		idToNode[n.id] = n
+	}
+
 	return &Allocator{
-		ranges:     ranges,
-		nodes:      nodes,
+		ranges:     idToRange,
+		nodes:      idToNode,
 		model:      model,
 		assignment: assignment,
 		opts:       defaultOptions,
 	}
 }
 
-func (a *Allocator) intVar(i int) []solver.IntVar {
-	return a.assignment[i]
+func (a Allocation) Print() {
+	for rangeID, nodeIDs := range a {
+		fmt.Println("Range with ID: ", rangeID, " on nodes: ", nodeIDs)
+	}
+}
+
+func (a *Allocator) PrintModel() {
+	fmt.Println(a.model.String())
+}
+
+func (a *Allocator) intVar(rid RangeID) []solver.IntVar {
+	return a.assignment[rid]
 }
 
 func WithNodeCapacity() Option {
@@ -107,69 +147,77 @@ func WithTagMatching() Option {
 func (a *Allocator) adhereToNodeResources() {
 	for _, re := range []Resource{DiskResource} {
 		maxCapacity := int64(0)
-		// compute maxCap --> the highest capacity available inside nodeset
-		// [100, 200, 300] --> maxCap = 300
 		for _, n := range a.nodes {
-			if n.resources[re] > maxCapacity {
-				maxCapacity = n.resources[re]
+			if c, found := n.resources[re]; !found {
+				maxCapacity = math.MaxInt32
+				break
+			} else if c > maxCapacity {
+				maxCapacity = c
 			}
 		}
 
 		tasks := make([]solver.Interval, 0)
 		demands := make([]solver.IntVar, 0)
-		sumOfDemands := int64(0)
-		// [whereDoesThisRangeGo(index into the nodes array), whereDoesThisRangeGo(index into the nodes array) + 1, 1)
-		// specified demand --> thisRange's demand --> how much resource does thisRange need.
-		// rangeDemands : [10, 5, 20] --> assignment[0] = whereDoesR0Go, whereDoesR1Go, whereDoesR2Go
-		// nodesDemands : [15, 20, 25]
-		for rangeIndex, nodeIndexes := range a.assignment {
-			for _, nodeIndex := range nodeIndexes {
-				// [whereDoesR0Go, whereDoesR0Go + 1) --> point on the x - axis
-				// R0's demand
-				// R0 demand of 15
+
+		// for each node n, compute offset from maxCapacity, and add an interval with dimensions [nodeID, nodeID +1)
+		// holding magnitude maxCapacity - n.resources[re], this ensures that only n.resources[re] worth of capacity remains.
+		fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
+		for _, node := range a.nodes {
+			if c, found := node.resources[re]; found {
 				toAdd := a.model.NewInterval(
-					nodeIndex, a.model.NewIntVar(1, int64(len(a.nodes)), ""),
-					a.model.NewConstant(1,  ""), "",
+					a.model.NewConstant(int64(node.id), fmt.Sprintf("Fixed offset LB for n.id:%d.", node.id)),
+					a.model.NewIntVar(1, 200, fmt.Sprintf("Fixed offset UB for n.id:%d.", node.id)),
+					fixedSizedOneOffset,
+					fmt.Sprintf("Fixed offset var for n.id:%d.", node.id),
 				)
-				tasks = append(
-					tasks, toAdd,
-				)
-				demands = append(demands, a.model.NewConstant(a.ranges[rangeIndex].demands[re], ""))
-				sumOfDemands += a.ranges[rangeIndex].demands[re]
+				tasks = append(tasks, toAdd)
+				demands = append(demands, a.model.NewConstant(maxCapacity - c, fmt.Sprintf("Fixed offset magnitude for n.id:%d.", node.id)))
 			}
 		}
 
-		for i, n := range a.nodes {
-			// rangeDemands : [10, 5, 20] --> assignment[0] = whereDoesR0Go, whereDoesR1Go, whereDoesR2Go
-			// nodesDemands : [15, 20, 25]
-			// R0 --> maxCapacity - 15
-			toAdd := a.model.NewInterval(
-				a.model.NewIntVar(int64(i), int64(i), ""), a.model.NewIntVar(1, int64(len(a.nodes)), ""),
-				a.model.NewIntVar(1, 1, ""), "",
-			)
-			tasks = append(
-				tasks, toAdd,
-			)
-			demands = append(demands, a.model.NewConstant(maxCapacity - n.resources[re], ""))
-			sumOfDemands += maxCapacity - n.resources[re]
+		// build demands for each node.
+		for rangeID, nodeIDs := range a.assignment {
+			for _, id := range nodeIDs {
+				toAdd := a.model.NewInterval(
+					id,
+					a.model.NewIntVar(1, 200, "Placeholder upper bound for node-IntVar."),
+					fixedSizedOneOffset,
+					"Interval representing demands placed on a node.",
+				)
+				tasks = append(tasks, toAdd)
+				demands = append(demands, a.model.NewConstant(a.ranges[rangeID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rangeID)))
+			}
 		}
+
+		if re == 0 {
+			a.model.AddConstraints(
+				solver.NewCumulativeConstraint(a.model.NewConstant(maxCapacity, "maxCapacity"),
+					tasks, demands,
+				),
+			)
+		}
+
+		pushDown := a.model.NewIntVar(0, math.MaxInt32, fmt.Sprintf("IntVar that pushes down for resource: %d", re))
 		a.model.AddConstraints(
-			solver.NewCumulativeConstraint(a.model.NewConstant(maxCapacity, ""),
+			solver.NewCumulativeConstraint(pushDown,
 				tasks, demands,
 			),
 		)
+		a.model.Minimize(solver.Sum(pushDown))
 	}
 }
 
 func (a *Allocator) adhereToNodeTags() {
 	for i, r := range a.ranges {
+		forbiddenAssignments := make([][]int64, 0)
 		for j, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
-				a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
-						a.intVar(i), [][]int64{{int64(j)}},
-				))
+				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(j)})
 			}
 		}
+		a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
+			a.intVar(i), forbiddenAssignments,
+		))
 	}
 }
 
@@ -189,7 +237,7 @@ func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
 	return true
 }
 
-func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
+func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 	if a.opts.withNodeCapacity {
 		a.adhereToNodeResources()
 	}
@@ -207,17 +255,19 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		fmt.Println(err)
 	}
 
+	fmt.Println(a.model.String())
+
 	result := a.model.Solve()
 	if result.Infeasible() || result.Invalid() {
 		return false, nil
 	}
 
-	res := make(map[RangeID][]NodeID)
+	res := make(Allocation)
 	for i, r := range a.ranges {
 		nodes := a.intVar(i)
 		for _, n := range nodes {
 			allocated := result.Value(n)
-			res[r.id] = append(res[r.id], a.nodes[allocated].id)
+			res[r.id] = append(res[r.id], NodeID(allocated))
 		}
 	}
 	return true, res

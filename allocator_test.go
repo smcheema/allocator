@@ -8,9 +8,9 @@ import (
 )
 
 func TestReplication(t *testing.T) {
-	const numRanges = 20000
-	const rf = 1
-	const numNodes = 6400
+	const numRanges = 20
+	const rf = 3
+	const numNodes = 64
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes).Allocate()
@@ -18,7 +18,7 @@ func TestReplication(t *testing.T) {
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
-		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments))
 	}
 }
 
@@ -45,9 +45,9 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 }
 
 func TestCapacity(t *testing.T) {
-	const numRanges = 20
-	const rf = 1
-	const numNodes = 8
+	const numRanges = 200
+	const rf = 3
+	const numNodes = 80
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 8_000, 10_000), buildEmptyTags(numNodes))
 	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
 	for i := range rangeDemands {
@@ -74,7 +74,7 @@ func TestCapacityWithCappedSizes(t *testing.T) {
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
-	expectedAllocation := map[allocator.RangeID][]allocator.NodeID{
+	expectedAllocation := allocator.Allocation{
 		0: {2},
 		1: {1},
 		2: {0},
@@ -107,7 +107,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
-		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments, numNodes))
+		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments))
 	}
 	require.True(t, nodeCapacityIsRespected(allocation, clusterCapacities, rangeSizeDemands))
 }
@@ -161,7 +161,7 @@ func TestTagsWithViableNodes(t *testing.T) {
 	}
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), nodeTags)
 	ranges := buildRanges(numRanges, rf, make([]map[allocator.Resource]int64, numRanges), rangeTags)
-	expectedAllocation := map[allocator.RangeID][]allocator.NodeID{
+	expectedAllocation := allocator.Allocation{
 		0: {2},
 		1: {1},
 		2: {0},
@@ -184,7 +184,25 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
-func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) []allocator.Node {
+func TestQPS(t *testing.T) {
+	const numRanges = 20
+	const rf = 1
+	const numNodes = 8
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 8_000, 10_000), buildEmptyTags(numNodes))
+	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
+	for i := range rangeDemands {
+		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: int64(i), allocator.Qps: int64(i)}
+	}
+	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	require.True(t, status)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+	}
+}
+
+func buildNodes(numNodes int64, nodeCapacities []int64,tags [][]string) []allocator.Node {
 	nodes := make([]allocator.Node, numNodes)
 	for index := 0; index < len(nodes); index++ {
 		nodes[index] = allocator.NewNode(
@@ -228,13 +246,13 @@ func isValidNodeAssignment(nodeIDs []allocator.NodeID, clusterSize int64) bool {
 	return true
 }
 
-func isEachReplicaAssignedToDifferentNode(nodeIDs []allocator.NodeID, clusterSize int64) bool {
-	bitMap := make([]int64, clusterSize)
+func isEachReplicaAssignedToDifferentNode(nodeIDs []allocator.NodeID) bool {
+	nodeIdSet := make(map[allocator.NodeID]struct{})
 	for _, nodeID := range nodeIDs {
-		if bitMap[nodeID] == 1 {
+		if _, found := nodeIdSet[nodeID]; found {
 			return false
 		} else {
-			bitMap[nodeID]++
+			nodeIdSet[nodeID] = struct{}{}
 		}
 	}
 	return true
@@ -270,24 +288,3 @@ func buildEmptyDemands(len int) []map[allocator.Resource]int64 {
 	}
 	return ret
 }
-
-func benchMarkRun(rf int, numNodes int64, numRanges int64, b *testing.B) {
-	var status bool
-	for n := 0; n < b.N; n++ {
-		nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(int(numNodes)))
-		ranges := buildRanges(numRanges, rf, buildEmptyDemands(int(numRanges)), buildEmptyTags(int(numRanges)))
-		status, _ = allocator.New(ranges, nodes).Allocate()
-	}
-	result := status
-	if result == false {
-		result = true
-	}
-}
-
-func BenchmarkLight(b *testing.B)  { benchMarkRun(3, 10, 10, b) }
-func BenchmarkLight10X(b *testing.B)  { benchMarkRun(3, 10, 100, b) }
-func BenchmarkModerate(b *testing.B)  { benchMarkRun(3, 100, 100, b) }
-func BenchmarkModerate10x(b *testing.B)  { benchMarkRun(3, 1000, 100, b) }
-func BenchmarkModerate100x(b *testing.B)  { benchMarkRun(3, 1000, 1000, b) }
-func BenchmarkHeavy(b *testing.B)  { benchMarkRun(3, 10000, 1000, b) }
-func BenchmarkHeavy10x(b *testing.B)  { benchMarkRun(3, 10000, 10000, b) }
