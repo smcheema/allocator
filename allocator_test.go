@@ -8,9 +8,9 @@ import (
 )
 
 func TestReplication(t *testing.T) {
-	const numRanges = 20
-	const rf = 3
-	const numNodes = 64
+	const numRanges = 20000
+	const rf = 1
+	const numNodes = 6400
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
 	status, allocation := allocator.New(ranges, nodes).Allocate()
@@ -270,3 +270,24 @@ func buildEmptyDemands(len int) []map[allocator.Resource]int64 {
 	}
 	return ret
 }
+
+func benchMarkRun(rf int, numNodes int64, numRanges int64, b *testing.B) {
+	var status bool
+	for n := 0; n < b.N; n++ {
+		nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(int(numNodes)))
+		ranges := buildRanges(numRanges, rf, buildEmptyDemands(int(numRanges)), buildEmptyTags(int(numRanges)))
+		status, _ = allocator.New(ranges, nodes).Allocate()
+	}
+	result := status
+	if result == false {
+		result = true
+	}
+}
+
+func BenchmarkLight(b *testing.B)  { benchMarkRun(3, 10, 10, b) }
+func BenchmarkLight10X(b *testing.B)  { benchMarkRun(3, 10, 100, b) }
+func BenchmarkModerate(b *testing.B)  { benchMarkRun(3, 100, 100, b) }
+func BenchmarkModerate10x(b *testing.B)  { benchMarkRun(3, 1000, 100, b) }
+func BenchmarkModerate100x(b *testing.B)  { benchMarkRun(3, 1000, 1000, b) }
+func BenchmarkHeavy(b *testing.B)  { benchMarkRun(3, 10000, 1000, b) }
+func BenchmarkHeavy10x(b *testing.B)  { benchMarkRun(3, 10000, 10000, b) }

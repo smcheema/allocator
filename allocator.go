@@ -2,7 +2,7 @@ package allocator
 
 import (
 	"fmt"
-	"github.com/irfansharif/or-tools/cpsatsolver"
+	"github.com/irfansharif/solver"
 )
 
 type NodeID int64
@@ -36,8 +36,15 @@ type Option func(*options)
 type Allocator struct {
 	ranges     []Range
 	nodes      []Node
-	model      *cpsatsolver.Model
-	assignment map[RangeID]map[NodeID]cpsatsolver.Literal
+	model      *solver.Model
+	// map[RangeId]map[NodeId]Literal
+	// n x r variables
+	// 1000, 10k, 10^8 variables
+	// dependency on nodes --> having it rely soley on ranges
+	// index into the range slice, maps to an IntVar
+	// where does this range end up? Which node do I put this range onto.
+	// sum of all replication factors
+	assignment map[int][]solver.IntVar
 	opts       options
 }
 
@@ -59,12 +66,12 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 }
 
 func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
-	model := cpsatsolver.NewModel()
-	assignment := make(map[RangeID]map[NodeID]cpsatsolver.Literal)
-	for _, r := range ranges {
-		assignment[r.id] = make(map[NodeID]cpsatsolver.Literal, len(nodes))
-		for _, n := range nodes {
-			assignment[r.id][n.id] = model.NewLiteral(fmt.Sprintf("r%d-on-n%d", r.id, n.id))
+	model := solver.NewModel("")
+	assignment := make(map[int][]solver.IntVar)
+	for i, r := range ranges {
+		assignment[i] = make([]solver.IntVar, r.rf)
+		for j := range assignment[i] {
+			assignment[i][j] = model.NewIntVar(0, int64(len(nodes)-1), "")
 		}
 	}
 	defaultOptions := options{}
@@ -81,17 +88,8 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	}
 }
 
-func (a *Allocator) rangeLiterals(r Range) []cpsatsolver.Literal {
-	var res []cpsatsolver.Literal
-	ns := a.assignment[r.id]
-	for _, k := range ns {
-		res = append(res, k)
-	}
-	return res
-}
-
-func (a *Allocator) literal(r Range, n Node) cpsatsolver.Literal {
-	return a.assignment[r.id][n.id]
+func (a *Allocator) intVar(i int) []solver.IntVar {
+	return a.assignment[i]
 }
 
 func WithNodeCapacity() Option {
@@ -108,34 +106,70 @@ func WithTagMatching() Option {
 
 func (a *Allocator) adhereToNodeResources() {
 	for _, re := range []Resource{DiskResource} {
+		maxCapacity := int64(0)
+		// compute maxCap --> the highest capacity available inside nodeset
+		// [100, 200, 300] --> maxCap = 300
 		for _, n := range a.nodes {
-			capacity := n.resources[re]
-
-			var vars []cpsatsolver.IntVar
-			var coefficients []int64
-			for _, r := range a.ranges {
-				vars = append(vars, a.literal(r, n))
-				coefficients = append(coefficients, r.demands[re])
+			if n.resources[re] > maxCapacity {
+				maxCapacity = n.resources[re]
 			}
-
-			a.model.AddConstraints(cpsatsolver.NewLinearConstraint(
-				cpsatsolver.NewLinearExpr(vars, coefficients, 0),
-				cpsatsolver.NewDomain(0, capacity)))
 		}
+
+		tasks := make([]solver.Interval, 0)
+		demands := make([]solver.IntVar, 0)
+		sumOfDemands := int64(0)
+		// [whereDoesThisRangeGo(index into the nodes array), whereDoesThisRangeGo(index into the nodes array) + 1, 1)
+		// specified demand --> thisRange's demand --> how much resource does thisRange need.
+		// rangeDemands : [10, 5, 20] --> assignment[0] = whereDoesR0Go, whereDoesR1Go, whereDoesR2Go
+		// nodesDemands : [15, 20, 25]
+		for rangeIndex, nodeIndexes := range a.assignment {
+			for _, nodeIndex := range nodeIndexes {
+				// [whereDoesR0Go, whereDoesR0Go + 1) --> point on the x - axis
+				// R0's demand
+				// R0 demand of 15
+				toAdd := a.model.NewInterval(
+					nodeIndex, a.model.NewIntVar(1, int64(len(a.nodes)), ""),
+					a.model.NewConstant(1,  ""), "",
+				)
+				tasks = append(
+					tasks, toAdd,
+				)
+				demands = append(demands, a.model.NewConstant(a.ranges[rangeIndex].demands[re], ""))
+				sumOfDemands += a.ranges[rangeIndex].demands[re]
+			}
+		}
+
+		for i, n := range a.nodes {
+			// rangeDemands : [10, 5, 20] --> assignment[0] = whereDoesR0Go, whereDoesR1Go, whereDoesR2Go
+			// nodesDemands : [15, 20, 25]
+			// R0 --> maxCapacity - 15
+			toAdd := a.model.NewInterval(
+				a.model.NewIntVar(int64(i), int64(i), ""), a.model.NewIntVar(1, int64(len(a.nodes)), ""),
+				a.model.NewIntVar(1, 1, ""), "",
+			)
+			tasks = append(
+				tasks, toAdd,
+			)
+			demands = append(demands, a.model.NewConstant(maxCapacity - n.resources[re], ""))
+			sumOfDemands += maxCapacity - n.resources[re]
+		}
+		a.model.AddConstraints(
+			solver.NewCumulativeConstraint(a.model.NewConstant(maxCapacity, ""),
+				tasks, demands,
+			),
+		)
 	}
 }
 
 func (a *Allocator) adhereToNodeTags() {
-	for _, r := range a.ranges {
-		unAssignableNodes := make([]cpsatsolver.Literal, 0, len(a.nodes))
-		for _, n := range a.nodes {
+	for i, r := range a.ranges {
+		for j, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
-				unAssignableNodes = append(unAssignableNodes, a.literal(r, n))
+				a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
+						a.intVar(i), [][]int64{{int64(j)}},
+				))
 			}
 		}
-		a.model.AddConstraints(
-			cpsatsolver.NewExactlyKConstraint(0, unAssignableNodes...),
-		)
 	}
 }
 
@@ -164,8 +198,13 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		a.adhereToNodeTags()
 	}
 
-	for _, r := range a.ranges {
-		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
+	for _, r := range a.assignment {
+		a.model.AddConstraints(solver.NewAllDifferentConstraint(r...))
+	}
+
+	ok, err := a.model.Validate()
+	if !ok {
+		fmt.Println(err)
 	}
 
 	result := a.model.Solve()
@@ -174,12 +213,11 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 	}
 
 	res := make(map[RangeID][]NodeID)
-	for _, r := range a.ranges {
-		for _, n := range a.nodes {
-			allocated := result.BooleanValue(a.literal(r, n))
-			if allocated {
-				res[r.id] = append(res[r.id], n.id)
-			}
+	for i, r := range a.ranges {
+		nodes := a.intVar(i)
+		for _, n := range nodes {
+			allocated := result.Value(n)
+			res[r.id] = append(res[r.id], a.nodes[allocated].id)
 		}
 	}
 	return true, res
