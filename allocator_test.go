@@ -45,9 +45,9 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 }
 
 func TestCapacity(t *testing.T) {
-	const numRanges = 200
-	const rf = 3
-	const numNodes = 80
+	const numRanges = 20
+	const rf = 1
+	const numNodes = 8
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 8_000, 10_000), buildEmptyTags(numNodes))
 	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
 	for i := range rangeDemands {
@@ -185,9 +185,9 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 }
 
 func TestQPS(t *testing.T) {
-	const numRanges = 20
+	const numRanges = 12
 	const rf = 1
-	const numNodes = 8
+	const numNodes = 6
 	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 8_000, 10_000), buildEmptyTags(numNodes))
 	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
 	for i := range rangeDemands {
@@ -200,6 +200,26 @@ func TestQPS(t *testing.T) {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
 	}
+}
+
+func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
+	const numRanges = 50
+	const rf = 3
+	const numNodes = 5
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0, 1), buildEmptyTags(numNodes))
+	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes).Allocate()
+	require.True(t, status)
+
+	const newNumRanges = 50
+	const newRF = 2
+	const newNumNodes = 5
+	const maxChurn = 1
+	newNodes := buildNodes(newNumNodes, nodeCapacitySupplier(newNumNodes, 0, 1), buildEmptyTags(newNumNodes))
+	newRanges := buildRanges(newNumRanges, newRF, buildEmptyDemands(newNumRanges), buildEmptyTags(newNumRanges))
+	status, allocation = allocator.New(newRanges, newNodes, allocator.WithChurnConstraint(allocation, true, maxChurn)).Allocate()
+	require.False(t, status)
+	require.Nil(t, allocation)
 }
 
 func buildNodes(numNodes int64, nodeCapacities []int64,tags [][]string) []allocator.Node {

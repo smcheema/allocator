@@ -3,7 +3,6 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
-	"math"
 	"sort"
 )
 
@@ -31,18 +30,19 @@ type Node struct {
 }
 
 type options struct {
-	withNodeCapacity bool
-	withTagAffinity  bool
+	withResources   bool
+	withTagAffinity bool
 }
 
 type Option func(*options)
 
 type Allocator struct {
-	ranges     map[RangeID]Range
-	nodes      map[NodeID]Node
-	model      *solver.Model
-	assignment map[RangeID][]solver.IntVar
-	opts       options
+	ranges      map[RangeID]Range
+	nodes       map[NodeID]Node
+	model       *solver.Model
+	assignment  map[RangeID][]solver.IntVar
+	opts        options
+	nodeDomains []int64
 }
 
 func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Range {
@@ -74,6 +74,9 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 
 	startIndex, endIndex := 0, 1
 
+	// build disjoint intervals, these help keep our domains as tight as possible.
+	// an example of where this computation helps would be being passed nodeIds : [0, 1, 1000]
+	// this would then split the above into [0, 1] and [1, 1000].
 	for endIndex < len(nodes) {
 		if nodes[endIndex].id != nodes[endIndex - 1].id + 1 {
 			nIdDomain = append(nIdDomain, int64(nodes[startIndex].id), int64(nodes[endIndex - 1].id))
@@ -110,11 +113,12 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	}
 
 	return &Allocator{
-		ranges:     idToRange,
-		nodes:      idToNode,
-		model:      model,
-		assignment: assignment,
-		opts:       defaultOptions,
+		ranges:      idToRange,
+		nodes:       idToNode,
+		model:       model,
+		assignment:  assignment,
+		opts:        defaultOptions,
+		nodeDomains: nIdDomain,
 	}
 }
 
@@ -134,7 +138,7 @@ func (a *Allocator) intVar(rid RangeID) []solver.IntVar {
 
 func WithNodeCapacity() Option {
 	return func(opt *options) {
-		opt.withNodeCapacity = true
+		opt.withResources = true
 	}
 }
 
@@ -145,28 +149,78 @@ func WithTagMatching() Option {
 }
 
 func (a *Allocator) adhereToNodeResources() {
-	for _, re := range []Resource{DiskResource} {
+	// build demands for each node.
+	upperNodeIdDomain := append(make([]int64, 0, len(a.nodeDomains)), a.nodeDomains...)
+	// our intervals are built as: [nodeId, nodeId + 1).
+	// the below helps with building out what the domain would look like for the second argument above.
+	for i := range upperNodeIdDomain {
+		upperNodeIdDomain[i]++
+	}
+	// build this here to reduce our ever-expanding variable set.
+	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
+	for _, re := range []Resource{DiskResource, Qps} {
 		maxCapacity := int64(0)
+		totalDemand := int64(0)
+		// tasks pertain to node's here. Each task spans [nodeID, nodeID + 1)
+		tasks := make([]solver.Interval, 0)
+		// demands pertain to the asks placed on each node. These are primarily composed of
+		// fixed offsets to even out node capacity + demands put forth by the ranges that will ultimately be assigned
+		// to said nodes.
+		demands := make([]solver.IntVar, 0)
+		for _, r := range a.ranges {
+			totalDemand += r.demands[re] * int64(r.rf)
+		}
+		// go over cluster, compute maxCapacity
+		// if a node does not define a capacity for a specific resource,
+		// assume it to equal +inf. We represent +inf as totalDemand (how much we're looking to allocate)
+		// to keep our bounds as tight as possible.
 		for _, n := range a.nodes {
 			if c, found := n.resources[re]; !found {
-				maxCapacity = math.MaxInt32
+				maxCapacity = totalDemand
 				break
 			} else if c > maxCapacity {
 				maxCapacity = c
 			}
 		}
 
-		tasks := make([]solver.Interval, 0)
-		demands := make([]solver.IntVar, 0)
+		for rangeID, nodeIDs := range a.assignment {
+			for i, id := range nodeIDs {
+				toAdd := a.model.NewInterval(
+					id,
+					a.model.NewIntVarFromDomain(solver.NewDomain(upperNodeIdDomain[0], upperNodeIdDomain[1], upperNodeIdDomain[2:]...), "Adjusted intervals for upper bounds."),
+					fixedSizedOneOffset,
+					fmt.Sprintf("Interval representing demands placed on node by range: %d, replica: %d", rangeID, i),
+				)
+				tasks = append(tasks, toAdd)
+				demands = append(demands, a.model.NewConstant(a.ranges[rangeID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rangeID)))
+			}
+		}
+
+		// do this now, as opposed to doing it after adding our fixed offsets. This is because balancing becomes tricky
+		// with fixed sized blocks. Consider nodes with some arbitrary capacity defined: [10, 50, 90],
+		// and ranges with arbitrary demands defined: [10, 20, 30]. If we ask to balance after adding our fixed offsets,
+		// we're asking to balance across node0 with fixed offset (80), node1 with fixed offset (40), and node2 across fixed offset 0.
+		// This causes the allocator to imbalance all placement over to the last node.
+		minimizeVariance := a.model.NewIntVar(0, totalDemand, fmt.Sprintf("IntVar that pushes down for resource: %d", re))
+		a.model.AddConstraints(
+			solver.NewCumulativeConstraint(minimizeVariance,
+				tasks, demands,
+			),
+		)
+		// this completely bottlenecks our performance. It completely blasts up over small increases to cluster sizes.
+		// I have tried different ways of modelling constraints, inspecting model variables as a function of cluster size,
+		// but no luck as yet. this doesn't seem straightforward, most likely a lot of playing around will either expose
+		// an inefficiency in my design or something deeper.
+		a.model.Minimize(solver.Sum(minimizeVariance))
+
 
 		// for each node n, compute offset from maxCapacity, and add an interval with dimensions [nodeID, nodeID +1)
 		// holding magnitude maxCapacity - n.resources[re], this ensures that only n.resources[re] worth of capacity remains.
-		fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
 		for _, node := range a.nodes {
 			if c, found := node.resources[re]; found {
 				toAdd := a.model.NewInterval(
 					a.model.NewConstant(int64(node.id), fmt.Sprintf("Fixed offset LB for n.id:%d.", node.id)),
-					a.model.NewIntVar(1, 200, fmt.Sprintf("Fixed offset UB for n.id:%d.", node.id)),
+					a.model.NewConstant(int64(node.id) + 1, fmt.Sprintf("Fixed offset UB for n.id:%d.", node.id)),
 					fixedSizedOneOffset,
 					fmt.Sprintf("Fixed offset var for n.id:%d.", node.id),
 				)
@@ -175,35 +229,13 @@ func (a *Allocator) adhereToNodeResources() {
 			}
 		}
 
-		// build demands for each node.
-		for rangeID, nodeIDs := range a.assignment {
-			for _, id := range nodeIDs {
-				toAdd := a.model.NewInterval(
-					id,
-					a.model.NewIntVar(1, 200, "Placeholder upper bound for node-IntVar."),
-					fixedSizedOneOffset,
-					"Interval representing demands placed on a node.",
-				)
-				tasks = append(tasks, toAdd)
-				demands = append(demands, a.model.NewConstant(a.ranges[rangeID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rangeID)))
-			}
-		}
-
-		if re == 0 {
-			a.model.AddConstraints(
-				solver.NewCumulativeConstraint(a.model.NewConstant(maxCapacity, "maxCapacity"),
-					tasks, demands,
-				),
-			)
-		}
-
-		pushDown := a.model.NewIntVar(0, math.MaxInt32, fmt.Sprintf("IntVar that pushes down for resource: %d", re))
+		// ensure capacity constraints are respected.
+		capacityLimit := a.model.NewIntVar(0, maxCapacity, fmt.Sprintf("IntVar that dictates capacity constraints for resource: %d", re))
 		a.model.AddConstraints(
-			solver.NewCumulativeConstraint(pushDown,
+			solver.NewCumulativeConstraint(capacityLimit,
 				tasks, demands,
 			),
 		)
-		a.model.Minimize(solver.Sum(pushDown))
 	}
 }
 
@@ -238,7 +270,7 @@ func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
 }
 
 func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
-	if a.opts.withNodeCapacity {
+	if a.opts.withResources {
 		a.adhereToNodeResources()
 	}
 
@@ -254,8 +286,6 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 	if !ok {
 		fmt.Println(err)
 	}
-
-	fmt.Println(a.model.String())
 
 	result := a.model.Solve()
 	if result.Infeasible() || result.Invalid() {
