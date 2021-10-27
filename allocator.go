@@ -213,10 +213,11 @@ func (a *Allocator) adhereToChurnConstraint() {
 	for _, r := range a.ranges {
 		if prevNodeIDs, ok := a.opts.prevAssignment[r.id]; ok {
 			for i, iv := range a.assignment[r.id] {
-				newLiteral := a.model.NewLiteral("")
+				newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))
 				a.model.AddConstraints(
 					solver.NewLinearConstraint(
-						solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), "")}, []int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
+						solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), fmt.Sprintf("IntVar corresponding to assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))},
+							[]int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
 				toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
 			}
 		}
