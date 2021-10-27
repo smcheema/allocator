@@ -3,14 +3,15 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
-	"math"
 )
 
 type NodeID int64
 type RangeID int64
 type Resource int
+type Allocation map[RangeID][]NodeID
 
 const (
+	noMaxChurn            = -1
 	DiskResource Resource = iota
 )
 
@@ -27,26 +28,21 @@ type Node struct {
 	resources map[Resource]int64
 }
 
-type churnOptions struct {
-	withMinimalChurn bool
-	withMaxChurn     bool
-	maxChurn         int64
-	prevAssignment   map[RangeID]map[NodeID]int
-}
-
 type options struct {
-	withNodeCapacity bool
+	withResources    bool
 	withTagAffinity  bool
-	churnOptions     churnOptions
+	withMinimalChurn bool
+	maxChurn         int64
+	prevAssignment   map[RangeID][]NodeID
 }
 
 type Option func(*options)
 
 type Allocator struct {
-	ranges     []Range
-	nodes      []Node
+	ranges     map[RangeID]Range
+	nodes      map[NodeID]Node
 	model      *solver.Model
-	assignment map[RangeID]map[NodeID]solver.Literal
+	assignment map[RangeID][]solver.IntVar
 	opts       options
 }
 
@@ -69,29 +65,48 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 
 func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	model := solver.NewModel("Lé-Allocator")
-	assignment := make(map[RangeID]map[NodeID]solver.Literal)
+	assignment := make(map[RangeID][]solver.IntVar)
 	for _, r := range ranges {
-		assignment[r.id] = make(map[NodeID]solver.Literal, len(nodes))
-		for _, n := range nodes {
-			assignment[r.id][n.id] = model.NewLiteral(fmt.Sprintf("r%d-on-n%d", r.id, n.id))
+		assignment[r.id] = make([]solver.IntVar, r.rf)
+		for j := range assignment[r.id] {
+			assignment[r.id][j] = model.NewIntVarFromDomain(
+				solver.NewDomain(int64(nodes[0].id), int64(nodes[len(nodes)-1].id)),
+				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
 	defaultOptions := options{}
+	defaultOptions.maxChurn = noMaxChurn
 	for _, opt := range opts {
 		opt(&defaultOptions)
 	}
 
+	idToRangeMap := make(map[RangeID]Range)
+	for _, r := range ranges {
+		idToRangeMap[r.id] = r
+	}
+
+	idToNodeMap := make(map[NodeID]Node)
+	for _, n := range nodes {
+		idToNodeMap[n.id] = n
+	}
+
 	return &Allocator{
-		ranges:     ranges,
-		nodes:      nodes,
+		ranges:     idToRangeMap,
+		nodes:      idToNodeMap,
 		model:      model,
 		assignment: assignment,
 		opts:       defaultOptions,
 	}
 }
 
-func (a *Allocator) rangeLiterals(r Range) []solver.Literal {
-	var res []solver.Literal
+func (a Allocation) Print() {
+	for rangeID, nodeIDs := range a {
+		fmt.Println("Range with ID: ", rangeID, " on nodes: ", nodeIDs)
+	}
+}
+
+func (a *Allocator) rangeIntVars(r Range) []solver.IntVar {
+	var res []solver.IntVar
 	ns := a.assignment[r.id]
 	for _, k := range ns {
 		res = append(res, k)
@@ -99,13 +114,9 @@ func (a *Allocator) rangeLiterals(r Range) []solver.Literal {
 	return res
 }
 
-func (a *Allocator) literal(r Range, n Node) solver.Literal {
-	return a.assignment[r.id][n.id]
-}
-
 func WithNodeCapacity() Option {
 	return func(opt *options) {
-		opt.withNodeCapacity = true
+		opt.withResources = true
 	}
 }
 
@@ -115,51 +126,64 @@ func WithTagMatching() Option {
 	}
 }
 
-// WithChurnConstraint to add churn constraints
-// If maxChurn == math.MaxInt64 then it will not apply the maxChurn constraint
-// If minimizeChurn == true it will try to minimize the churn
-func WithChurnConstraint(prevAssignment map[RangeID][]NodeID, minimizeChurn bool, maxChurn int64) Option {
+func WithPriorAssignment(prevAssignment map[RangeID][]NodeID) Option {
 	return func(opt *options) {
-		opt.churnOptions.prevAssignment = toMap(prevAssignment)
-		opt.churnOptions.withMinimalChurn = minimizeChurn
-		opt.churnOptions.withMaxChurn = maxChurn < math.MaxInt64
+		opt.prevAssignment = prevAssignment
+	}
+}
+
+func WithMaxChurn(maxChurn int64) Option {
+	return func(opt *options) {
 		if maxChurn < 0 {
 			panic("max-churn must be greater than or equal to 0")
 		}
-		opt.churnOptions.maxChurn = maxChurn
+		opt.maxChurn = maxChurn
+	}
+}
+
+func WithChurnMinimized() Option {
+	return func(opt *options) {
+		opt.withMinimalChurn = true
 	}
 }
 
 func (a *Allocator) adhereToNodeResources() {
+	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
 	for _, re := range []Resource{DiskResource} {
-		for _, n := range a.nodes {
-			capacity := n.resources[re]
-
-			var vars []solver.IntVar
-			var coefficients []int64
-			for _, r := range a.ranges {
-				vars = append(vars, a.literal(r, n))
-				coefficients = append(coefficients, r.demands[re])
+		capacity := a.model.NewConstant(a.nodes[0].resources[re], fmt.Sprintf("Fixed constant used to enforce capacity constraint for resource: %d", re))
+		tasks := make([]solver.Interval, 0)
+		demands := make([]solver.IntVar, 0)
+		for rID, nIDs := range a.assignment {
+			for i, id := range nIDs {
+				toAdd := a.model.NewInterval(
+					id,
+					a.model.NewIntVarFromDomain(solver.NewDomain(1, int64(len(a.nodes))), "Adjusted intervals for upper bounds."),
+					fixedSizedOneOffset,
+					fmt.Sprintf("Interval representing demands placed on node by range: %d, replica: %d", rID, i),
+				)
+				tasks = append(tasks, toAdd)
+				demands = append(demands, a.model.NewConstant(a.ranges[rID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rID)))
 			}
-
-			a.model.AddConstraints(solver.NewLinearConstraint(
-				solver.NewLinearExpr(vars, coefficients, 0),
-				solver.NewDomain(0, capacity)))
 		}
+		a.model.AddConstraints(
+			solver.NewCumulativeConstraint(capacity,
+				tasks, demands,
+			),
+		)
 	}
 }
 
 func (a *Allocator) adhereToNodeTags() {
-	for _, r := range a.ranges {
-		unAssignableNodes := make([]solver.Literal, 0, len(a.nodes))
-		for _, n := range a.nodes {
+	for rID, r := range a.ranges {
+		forbiddenAssignments := make([][]int64, 0)
+		for nID, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
-				unAssignableNodes = append(unAssignableNodes, a.literal(r, n))
+				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nID)})
 			}
 		}
-		a.model.AddConstraints(
-			solver.NewExactlyKConstraint(0, unAssignableNodes...),
-		)
+		a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
+			a.assignment[rID], forbiddenAssignments,
+		))
 	}
 }
 
@@ -179,19 +203,38 @@ func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
 	return true
 }
 
-func toMap(t map[RangeID][]NodeID) map[RangeID]map[NodeID]int {
-	ret := make(map[RangeID]map[NodeID]int)
-	for k, v := range t {
-		ret[k] = make(map[NodeID]int)
-		for _, n := range v {
-			ret[k][n] = 1
+func (a *Allocator) adhereToChurnConstraint() {
+	if a.opts.prevAssignment == nil {
+		panic("missing/invalid prior assignment")
+	}
+	toMinimizeTheSumLiterals := make([]solver.Literal, 0)
+	fixedDomain := solver.NewDomain(0, 0)
+
+	for _, r := range a.ranges {
+		if prevNodeIDs, ok := a.opts.prevAssignment[r.id]; ok {
+			for i, iv := range a.assignment[r.id] {
+				newLiteral := a.model.NewLiteral("")
+				a.model.AddConstraints(
+					solver.NewLinearConstraint(
+						solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), "")}, []int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
+				toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
+			}
 		}
 	}
-	return ret
+
+	if a.opts.withMinimalChurn {
+		a.model.Minimize(solver.Sum(solver.AsIntVars(toMinimizeTheSumLiterals)...))
+	}
+
+	if a.opts.maxChurn != noMaxChurn {
+		a.model.AddConstraints(
+			solver.NewAtMostKConstraint(int(a.opts.maxChurn), toMinimizeTheSumLiterals...),
+		)
+	}
 }
 
-func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
-	if a.opts.withNodeCapacity {
+func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
+	if a.opts.withResources {
 		a.adhereToNodeResources()
 	}
 
@@ -199,12 +242,17 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		a.adhereToNodeTags()
 	}
 
-	for _, r := range a.ranges {
-		a.model.AddConstraints(solver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
+	for _, r := range a.assignment {
+		a.model.AddConstraints(solver.NewAllDifferentConstraint(r...))
 	}
 
-	if a.opts.churnOptions.withMinimalChurn || a.opts.churnOptions.withMaxChurn {
+	if a.opts.withMinimalChurn || a.opts.maxChurn != noMaxChurn {
 		a.adhereToChurnConstraint()
+	}
+
+	ok, err := a.model.Validate()
+	if !ok {
+		fmt.Println(err)
 	}
 
 	result := a.model.Solve()
@@ -212,43 +260,13 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 		return false, nil
 	}
 
-	res := make(map[RangeID][]NodeID)
-	for _, r := range a.ranges {
-		for _, n := range a.nodes {
-			allocated := result.BooleanValue(a.literal(r, n))
-			if allocated {
-				res[r.id] = append(res[r.id], n.id)
-			}
+	res := make(Allocation)
+	for rID, r := range a.ranges {
+		nodes := a.assignment[rID]
+		for _, n := range nodes {
+			allocated := result.Value(n)
+			res[r.id] = append(res[r.id], NodeID(allocated))
 		}
 	}
 	return true, res
-}
-
-// Minimize the number of Assignments which were 1 but would now become 0
-// Note: If a Range or a Node is no longer available and that causes an existing allocation to be removed,
-// it will not count as a churn
-func (a *Allocator) adhereToChurnConstraint() {
-
-	var toMinimizeTheSumLiterals = make([]solver.Literal, 0, len(a.ranges)*len(a.nodes))
-	prevAssignmentMap := a.opts.churnOptions.prevAssignment
-
-	for _, r := range a.ranges {
-		for _, n := range a.nodes {
-			if previousAssignment, ok := prevAssignmentMap[r.id][n.id]; ok == true && previousAssignment == 1 {
-				// Literal below would exist in the map because we are iterating through the new ranges and nodes
-				newLiteral := a.literal(r, n)
-				// previousAssignment = 1 and newLiteral.Not() would be true if the new value is 0. Minimize the sum of these
-				toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
-			}
-		}
-	}
-
-	if a.opts.churnOptions.withMinimalChurn {
-		a.model.Minimize(solver.Sum(solver.AsIntVars(toMinimizeTheSumLiterals)...))
-	}
-	if a.opts.churnOptions.withMaxChurn {
-		a.model.AddConstraints(
-			solver.NewAtMostKConstraint(int(a.opts.churnOptions.maxChurn), toMinimizeTheSumLiterals...),
-		)
-	}
 }
