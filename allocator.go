@@ -2,7 +2,7 @@ package allocator
 
 import (
 	"fmt"
-	"github.com/irfansharif/or-tools/cpsatsolver"
+	"github.com/irfansharif/solver"
 	"math"
 )
 
@@ -45,8 +45,8 @@ type Option func(*options)
 type Allocator struct {
 	ranges     []Range
 	nodes      []Node
-	model      *cpsatsolver.Model
-	assignment map[RangeID]map[NodeID]cpsatsolver.Literal
+	model      *solver.Model
+	assignment map[RangeID]map[NodeID]solver.Literal
 	opts       options
 }
 
@@ -68,10 +68,10 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 }
 
 func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
-	model := cpsatsolver.NewModel()
-	assignment := make(map[RangeID]map[NodeID]cpsatsolver.Literal)
+	model := solver.NewModel("Lé-Allocator")
+	assignment := make(map[RangeID]map[NodeID]solver.Literal)
 	for _, r := range ranges {
-		assignment[r.id] = make(map[NodeID]cpsatsolver.Literal, len(nodes))
+		assignment[r.id] = make(map[NodeID]solver.Literal, len(nodes))
 		for _, n := range nodes {
 			assignment[r.id][n.id] = model.NewLiteral(fmt.Sprintf("r%d-on-n%d", r.id, n.id))
 		}
@@ -90,8 +90,8 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	}
 }
 
-func (a *Allocator) rangeLiterals(r Range) []cpsatsolver.Literal {
-	var res []cpsatsolver.Literal
+func (a *Allocator) rangeLiterals(r Range) []solver.Literal {
+	var res []solver.Literal
 	ns := a.assignment[r.id]
 	for _, k := range ns {
 		res = append(res, k)
@@ -99,7 +99,7 @@ func (a *Allocator) rangeLiterals(r Range) []cpsatsolver.Literal {
 	return res
 }
 
-func (a *Allocator) literal(r Range, n Node) cpsatsolver.Literal {
+func (a *Allocator) literal(r Range, n Node) solver.Literal {
 	return a.assignment[r.id][n.id]
 }
 
@@ -135,30 +135,30 @@ func (a *Allocator) adhereToNodeResources() {
 		for _, n := range a.nodes {
 			capacity := n.resources[re]
 
-			var vars []cpsatsolver.IntVar
+			var vars []solver.IntVar
 			var coefficients []int64
 			for _, r := range a.ranges {
 				vars = append(vars, a.literal(r, n))
 				coefficients = append(coefficients, r.demands[re])
 			}
 
-			a.model.AddConstraints(cpsatsolver.NewLinearConstraint(
-				cpsatsolver.NewLinearExpr(vars, coefficients, 0),
-				cpsatsolver.NewDomain(0, capacity)))
+			a.model.AddConstraints(solver.NewLinearConstraint(
+				solver.NewLinearExpr(vars, coefficients, 0),
+				solver.NewDomain(0, capacity)))
 		}
 	}
 }
 
 func (a *Allocator) adhereToNodeTags() {
 	for _, r := range a.ranges {
-		unAssignableNodes := make([]cpsatsolver.Literal, 0, len(a.nodes))
+		unAssignableNodes := make([]solver.Literal, 0, len(a.nodes))
 		for _, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
 				unAssignableNodes = append(unAssignableNodes, a.literal(r, n))
 			}
 		}
 		a.model.AddConstraints(
-			cpsatsolver.NewExactlyKConstraint(0, unAssignableNodes...),
+			solver.NewExactlyKConstraint(0, unAssignableNodes...),
 		)
 	}
 }
@@ -200,7 +200,7 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 	}
 
 	for _, r := range a.ranges {
-		a.model.AddConstraints(cpsatsolver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
+		a.model.AddConstraints(solver.NewExactlyKConstraint(r.rf, a.rangeLiterals(r)...))
 	}
 
 	if a.opts.churnOptions.withMinimalChurn || a.opts.churnOptions.withMaxChurn {
@@ -229,7 +229,7 @@ func (a *Allocator) Allocate() (ok bool, assignments map[RangeID][]NodeID) {
 // it will not count as a churn
 func (a *Allocator) adhereToChurnConstraint() {
 
-	var toMinimizeTheSumLiterals = make([]cpsatsolver.Literal, 0, len(a.ranges)*len(a.nodes))
+	var toMinimizeTheSumLiterals = make([]solver.Literal, 0, len(a.ranges)*len(a.nodes))
 	prevAssignmentMap := a.opts.churnOptions.prevAssignment
 
 	for _, r := range a.ranges {
@@ -244,19 +244,11 @@ func (a *Allocator) adhereToChurnConstraint() {
 	}
 
 	if a.opts.churnOptions.withMinimalChurn {
-		a.model.Minimize(cpsatsolver.Sum(asIntVars(toMinimizeTheSumLiterals)...))
+		a.model.Minimize(solver.Sum(solver.AsIntVars(toMinimizeTheSumLiterals)...))
 	}
 	if a.opts.churnOptions.withMaxChurn {
 		a.model.AddConstraints(
-			cpsatsolver.NewAtMostKConstraint(int(a.opts.churnOptions.maxChurn), toMinimizeTheSumLiterals...),
+			solver.NewAtMostKConstraint(int(a.opts.churnOptions.maxChurn), toMinimizeTheSumLiterals...),
 		)
 	}
-}
-
-func asIntVars(literals []cpsatsolver.Literal) []cpsatsolver.IntVar {
-	var res []cpsatsolver.IntVar
-	for _, l := range literals {
-		res = append(res, l.(cpsatsolver.IntVar))
-	}
-	return res
 }
