@@ -8,10 +8,13 @@ import (
 
 // NodeID is a 64-bit identifier for nodes.
 type NodeID int64
+
 // RangeID is a 64-bit identifier for ranges.
 type RangeID int64
+
 // Resource is 32-bit identifier for resources -> {Disk, Qps}
 type Resource int
+
 // Allocation is the return type of our allocator.
 // It models mappings of RangeIDs to a list of NodeIDs.
 type Allocation map[RangeID][]NodeID
@@ -25,11 +28,11 @@ const (
 // Range encapsulates pertaining metadata for cockroachDB ranges.
 type Range struct {
 	// id represents a unique identifier.
-	id      RangeID
+	id RangeID
 	// rf equals the replication factor of said range.
-	rf      int
+	rf int
 	// tags are strings that showcase affinity for nodes.
-	tags    []string
+	tags []string
 	// demands model the resource requirements of said range.
 	demands map[Resource]int64
 }
@@ -37,9 +40,9 @@ type Range struct {
 // Node encapsulates pertaining metadata for cockroachDB nodes.
 type Node struct {
 	// id represents a unique identifier.
-	id        NodeID
+	id NodeID
 	// tags are strings that showcase affinity for ranges.
-	tags      []string
+	tags []string
 	// resources model the resource profile of said node.
 	resources map[Resource]int64
 }
@@ -47,15 +50,15 @@ type Node struct {
 // options hold runtime allocation configurations.
 type options struct {
 	// withResources signals the allocator to perform balancing and capacity checking.
-	withResources    bool
+	withResources bool
 	// withTagAffinity forces the allocator to perform affine allocations only.
-	withTagAffinity  bool
+	withTagAffinity bool
 	// withMinimalChurn asks the allocator to reduce variance from a prior allocation.
 	withMinimalChurn bool
 	// maxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
-	maxChurn         int64
+	maxChurn int64
 	// prevAssignment holds some prior allocation.
-	prevAssignment   map[RangeID][]NodeID
+	prevAssignment map[RangeID][]NodeID
 }
 
 // Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -64,15 +67,15 @@ type Option func(*options)
 // Allocator holds the ranges, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type Allocator struct {
 	// ranges are a mapping of RangeID onto the Range struct.
-	ranges     map[RangeID]Range
+	ranges map[RangeID]Range
 	// nodes are a mapping of NodeID onto the Node struct.
-	nodes      map[NodeID]Node
+	nodes map[NodeID]Node
 	// model is the underlying CP-SAT solver and the engine of this package.
-	model      *solver.Model
+	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
 	assignment map[RangeID][]solver.IntVar
 	// opts hold allocation configurations -> {withResources, withTagAffinity...}
-	opts       options
+	opts options
 }
 
 // NewRange builds and returns ranges from the necessary parameters.
