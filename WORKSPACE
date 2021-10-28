@@ -47,7 +47,7 @@ http_archive(
 
 git_repository(
     name = "com_github_irfansharif_solver",
-    branch = "6b95fa8eade20aa6ccc93d2748f41891a73a92b6",
+    branch = "11071354d9bd31c19e24f15f57afd8404ea5eee0",
     remote = "https://github.com/irfansharif/solver",
 
     # To point to local checkout, use:

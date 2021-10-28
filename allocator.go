@@ -3,6 +3,7 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
+	"time"
 )
 
 type NodeID int64
@@ -13,6 +14,7 @@ type Allocation map[RangeID][]NodeID
 const (
 	noMaxChurn            = -1
 	DiskResource Resource = iota
+	Qps
 )
 
 type Range struct {
@@ -149,8 +151,16 @@ func WithChurnMinimized() Option {
 
 func (a *Allocator) adhereToNodeResources() {
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
-	for _, re := range []Resource{DiskResource} {
-		capacity := a.model.NewConstant(a.nodes[0].resources[re], fmt.Sprintf("Fixed constant used to enforce capacity constraint for resource: %d", re))
+	for _, re := range []Resource{DiskResource, Qps} {
+		rawCapacity := int64(0)
+		if c, ok := a.nodes[0].resources[re]; ok {
+			rawCapacity = c
+		} else {
+			for _, r := range a.ranges {
+				rawCapacity += r.demands[re]
+			}
+		}
+		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for resource: %d", re))
 		tasks := make([]solver.Interval, 0)
 		demands := make([]solver.IntVar, 0)
 		for rID, nIDs := range a.assignment {
@@ -170,6 +180,7 @@ func (a *Allocator) adhereToNodeResources() {
 				tasks, demands,
 			),
 		)
+		a.model.Minimize(solver.Sum(capacity))
 	}
 }
 
@@ -181,9 +192,11 @@ func (a *Allocator) adhereToNodeTags() {
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nID)})
 			}
 		}
-		a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
-			a.assignment[rID], forbiddenAssignments,
-		))
+		for i := 0; i < r.rf; i++ {
+			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
+				[]solver.IntVar{a.assignment[rID][i]}, forbiddenAssignments,
+			))
+		}
 	}
 }
 
@@ -256,7 +269,7 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 		fmt.Println(err)
 	}
 
-	result := a.model.Solve()
+	result := a.model.Solve(solver.WithTimeout(time.Second * 10))
 	if result.Infeasible() || result.Invalid() {
 		return false, nil
 	}

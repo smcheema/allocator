@@ -155,26 +155,66 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
-// Need to add better tests once we have the framework for making easy tests
-
 func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	const numRanges = 3
 	const rf = 3
 	const numNodes = 6
-	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
-	for i := range rangeDemands {
-		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: 1}
+	nodeTags := [][]string{
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
 	}
-	nodes := buildNodes(numNodes, []int64{3, 3, 3, 3, 3, 3}, buildEmptyTags(numNodes))
-	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	rangeTags := [][]string{
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+	}
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), nodeTags)
+	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), rangeTags)
+	status, allocation := allocator.New(ranges, nodes, allocator.WithTagMatching()).Allocate()
 	require.True(t, status)
 
 	const maxChurn = 1
-	nodes = buildNodes(numNodes, []int64{2, 2, 2, 2, 2, 2}, buildEmptyTags(numNodes))
-	status, allocation = allocator.New(ranges, nodes, allocator.WithNodeCapacity(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
+	badNodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), buildEmptyTags(numNodes))
+	status, allocation = allocator.New(ranges, append(nodes[0:1], badNodes[1:]...), allocator.WithTagMatching(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
+}
+
+func TestQPSandDiskBalancing(t *testing.T) {
+	const numRanges = 12
+	const rf = 1
+	const numNodes = 6
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 10_000), buildEmptyTags(numNodes))
+	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
+	sizeDemands := 0
+	qpsDemands := 0
+	for i := range rangeDemands {
+		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: int64(i), allocator.Qps: int64(i)}
+		sizeDemands += i
+		qpsDemands += i
+	}
+	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	require.True(t, status)
+	reasonableVariance := 0.2
+	idealSizeAllocation := float64(sizeDemands + qpsDemands) / float64(numNodes)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+	}
+	nodeConsumption := make(map[allocator.NodeID]int64)
+	for rID, nodeAssignments := range allocation {
+		for _, nID := range nodeAssignments {
+			nodeConsumption[nID] += 2 * int64(rID)
+		}
+	}
+	for _, consumption := range nodeConsumption {
+		require.True(t, (float64(consumption) >= (1 - reasonableVariance) * idealSizeAllocation) && (float64(consumption) <= (1 + reasonableVariance) * idealSizeAllocation))
+	}
 }
 
 func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) []allocator.Node {
