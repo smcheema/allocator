@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Premise : test replication by requiring replicas to be assigned to unique nodes.
 func TestReplication(t *testing.T) {
 	const numRanges = 20
 	const rf = 3
@@ -21,6 +22,8 @@ func TestReplication(t *testing.T) {
 	}
 }
 
+// Premise : test infeasible allocation by setting numNodes < rf. This is deemed infeasible since
+// we mandate implicitly replicas to live on separate nodes.
 func TestReplicationWithInsufficientNodes(t *testing.T) {
 	const numRanges = 20
 	const rf = 3
@@ -32,6 +35,7 @@ func TestReplicationWithInsufficientNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : Same as above.
 func TestReplicationWithInfeasibleRF(t *testing.T) {
 	const numRanges = 20
 	const rf = 128
@@ -43,6 +47,7 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : build space-aware nodes and ranges. Require all capacity constraints are respected.
 func TestCapacity(t *testing.T) {
 	const numRanges = 20
 	const rf = 1
@@ -61,6 +66,7 @@ func TestCapacity(t *testing.T) {
 	}
 }
 
+// Premise : Same as above + replication.
 func TestCapacityTogetherWithReplication(t *testing.T) {
 	const numRanges = 5
 	const rf = 3
@@ -83,6 +89,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	require.True(t, nodeCapacityIsRespected(allocation, clusterCapacities, rangeSizeDemands))
 }
 
+// Premise : test unhappy path and ensure RF is accounted inside capacity computations.
 func TestCapacityWithInfeasibleRF(t *testing.T) {
 	const numRanges = 5
 	const rf = 5
@@ -100,6 +107,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : test unhappy path and ensure we are not allocating when impossible to do so.
 func TestCapacityWithInsufficientNodes(t *testing.T) {
 	const numRanges = 10
 	const rf = 1
@@ -116,6 +124,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : check tag affinity works on small cluster and range-set.
 func TestTagsWithViableNodes(t *testing.T) {
 	const numRanges = 3
 	const rf = 1
@@ -142,6 +151,7 @@ func TestTagsWithViableNodes(t *testing.T) {
 	require.Equal(t, expectedAllocation, allocation)
 }
 
+// Premise : validate failure upon orthogonal tag sets.
 func TestTagsWithNonviableNodes(t *testing.T) {
 	const numRanges = 1
 	const rf = 1
@@ -155,26 +165,68 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
-// Need to add better tests once we have the framework for making easy tests
-
+// Premise : allocate once, force allocator to modify prior allocation due to modified tags, ensure impossible to do
+// so due to low maxChurn limit.
 func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	const numRanges = 3
 	const rf = 3
 	const numNodes = 6
-	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
-	for i := range rangeDemands {
-		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: 1}
+	nodeTags := [][]string{
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
 	}
-	nodes := buildNodes(numNodes, []int64{3, 3, 3, 3, 3, 3}, buildEmptyTags(numNodes))
-	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	rangeTags := [][]string{
+		{"tag=A"},
+		{"tag=A"},
+		{"tag=A"},
+	}
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), nodeTags)
+	ranges := buildRanges(numRanges, rf, buildEmptyDemands(numRanges), rangeTags)
+	status, allocation := allocator.New(ranges, nodes, allocator.WithTagMatching()).Allocate()
 	require.True(t, status)
 
 	const maxChurn = 1
-	nodes = buildNodes(numNodes, []int64{2, 2, 2, 2, 2, 2}, buildEmptyTags(numNodes))
-	status, allocation = allocator.New(ranges, nodes, allocator.WithNodeCapacity(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
+	badNodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), buildEmptyTags(numNodes))
+	status, allocation = allocator.New(ranges, append(nodes[0:1], badNodes[1:]...), allocator.WithTagMatching(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
+}
+
+func TestQPSandDiskBalancing(t *testing.T) {
+	const numRanges = 12
+	const rf = 1
+	const numNodes = 6
+	nodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 10_000), buildEmptyTags(numNodes))
+	rangeDemands := make([]map[allocator.Resource]int64, numRanges)
+	sizeDemands := 0
+	qpsDemands := 0
+	for i := range rangeDemands {
+		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: int64(i), allocator.Qps: int64(i)}
+		sizeDemands += i
+		qpsDemands += i
+	}
+	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
+	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	require.True(t, status)
+	reasonableVariance := 0.2
+	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+	}
+	nodeConsumption := make(map[allocator.NodeID]int64)
+	for rID, nodeAssignments := range allocation {
+		for _, nID := range nodeAssignments {
+			nodeConsumption[nID] += 2 * int64(rID)
+		}
+	}
+	for _, consumption := range nodeConsumption {
+		require.True(t, (float64(consumption) >= (1-reasonableVariance)*idealSizeAllocation) && (float64(consumption) <= (1+reasonableVariance)*idealSizeAllocation))
+	}
 }
 
 func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) []allocator.Node {
