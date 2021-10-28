@@ -201,7 +201,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
 	require.True(t, status)
 	reasonableVariance := 0.2
-	idealSizeAllocation := float64(sizeDemands + qpsDemands) / float64(numNodes)
+	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
@@ -213,7 +213,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		}
 	}
 	for _, consumption := range nodeConsumption {
-		require.True(t, (float64(consumption) >= (1 - reasonableVariance) * idealSizeAllocation) && (float64(consumption) <= (1 + reasonableVariance) * idealSizeAllocation))
+		require.True(t, (float64(consumption) >= (1-reasonableVariance)*idealSizeAllocation) && (float64(consumption) <= (1+reasonableVariance)*idealSizeAllocation))
 	}
 }
 
