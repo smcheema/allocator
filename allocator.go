@@ -190,6 +190,8 @@ func (a *Allocator) adhereToNodeResources() {
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
 	for _, re := range []Resource{DiskResource, Qps} {
 		rawCapacity := int64(0)
+		// compute availability of node capacity. If not defined, assume we have just enough to
+		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
 		if c, ok := a.nodes[0].resources[re]; ok {
 			rawCapacity = c
 		} else {
@@ -323,6 +325,7 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 		fmt.Println(err)
 	}
 
+	// set a hard time limit of 10s on our solver.
 	result := a.model.Solve(solver.WithTimeout(time.Second * 10))
 	if result.Infeasible() || result.Invalid() {
 		return false, nil
