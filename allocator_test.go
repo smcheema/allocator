@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// Premise : test replication by requiring replicas to be assigned to unique nodes.
 func TestReplication(t *testing.T) {
 	const numRanges = 20
 	const rf = 3
@@ -21,6 +22,8 @@ func TestReplication(t *testing.T) {
 	}
 }
 
+// Premise : test infeasible allocation by setting numNodes < rf. This is deemed infeasible since
+// we mandate implicitly replicas to live on separate nodes.
 func TestReplicationWithInsufficientNodes(t *testing.T) {
 	const numRanges = 20
 	const rf = 3
@@ -32,6 +35,7 @@ func TestReplicationWithInsufficientNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : Same as above.
 func TestReplicationWithInfeasibleRF(t *testing.T) {
 	const numRanges = 20
 	const rf = 128
@@ -43,6 +47,7 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : build space-aware nodes and ranges. Require all capacity constraints are respected.
 func TestCapacity(t *testing.T) {
 	const numRanges = 20
 	const rf = 1
@@ -61,6 +66,7 @@ func TestCapacity(t *testing.T) {
 	}
 }
 
+// Premise : Same as above + replication.
 func TestCapacityTogetherWithReplication(t *testing.T) {
 	const numRanges = 5
 	const rf = 3
@@ -83,6 +89,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	require.True(t, nodeCapacityIsRespected(allocation, clusterCapacities, rangeSizeDemands))
 }
 
+// Premise : test unhappy path and ensure RF is accounted inside capacity computations.
 func TestCapacityWithInfeasibleRF(t *testing.T) {
 	const numRanges = 5
 	const rf = 5
@@ -100,6 +107,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : test unhappy path and ensure we are not allocating when impossible to do so.
 func TestCapacityWithInsufficientNodes(t *testing.T) {
 	const numRanges = 10
 	const rf = 1
@@ -116,6 +124,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : check tag affinity works on small cluster and range-set.
 func TestTagsWithViableNodes(t *testing.T) {
 	const numRanges = 3
 	const rf = 1
@@ -142,6 +151,7 @@ func TestTagsWithViableNodes(t *testing.T) {
 	require.Equal(t, expectedAllocation, allocation)
 }
 
+// Premise : validate failure upon orthogonal tag sets.
 func TestTagsWithNonviableNodes(t *testing.T) {
 	const numRanges = 1
 	const rf = 1
@@ -155,6 +165,8 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : allocate once, force allocator to modify prior allocation due to modified tags, ensure impossible to do
+// so due to low maxChurn limit.
 func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	const numRanges = 3
 	const rf = 3

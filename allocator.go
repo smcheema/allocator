@@ -6,9 +6,14 @@ import (
 	"time"
 )
 
+// NodeID is a 64-bit identifier for nodes.
 type NodeID int64
+// RangeID is a 64-bit identifier for ranges.
 type RangeID int64
+// Resource is 32-bit identifier for resources -> {Disk, Qps}
 type Resource int
+// Allocation is the return type of our allocator.
+// It models mappings of RangeIDs to a list of NodeIDs.
 type Allocation map[RangeID][]NodeID
 
 const (
@@ -17,37 +22,60 @@ const (
 	Qps
 )
 
+// Range encapsulates pertaining metadata for cockroachDB ranges.
 type Range struct {
+	// id represents a unique identifier.
 	id      RangeID
+	// rf equals the replication factor of said range.
 	rf      int
+	// tags are strings that showcase affinity for nodes.
 	tags    []string
+	// demands model the resource requirements of said range.
 	demands map[Resource]int64
 }
 
+// Node encapsulates pertaining metadata for cockroachDB nodes.
 type Node struct {
+	// id represents a unique identifier.
 	id        NodeID
+	// tags are strings that showcase affinity for ranges.
 	tags      []string
+	// resources model the resource profile of said node.
 	resources map[Resource]int64
 }
 
+// options hold runtime allocation configurations.
 type options struct {
+	// withResources signals the allocator to perform balancing and capacity checking.
 	withResources    bool
+	// withTagAffinity forces the allocator to perform affine allocations only.
 	withTagAffinity  bool
+	// withMinimalChurn asks the allocator to reduce variance from a prior allocation.
 	withMinimalChurn bool
+	// maxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
 	maxChurn         int64
+	// prevAssignment holds some prior allocation.
 	prevAssignment   map[RangeID][]NodeID
 }
 
+// Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
 type Option func(*options)
 
+// Allocator holds the ranges, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type Allocator struct {
+	// ranges are a mapping of RangeID onto the Range struct.
 	ranges     map[RangeID]Range
+	// nodes are a mapping of NodeID onto the Node struct.
 	nodes      map[NodeID]Node
+	// model is the underlying CP-SAT solver and the engine of this package.
 	model      *solver.Model
+	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
 	assignment map[RangeID][]solver.IntVar
+	// opts hold allocation configurations -> {withResources, withTagAffinity...}
 	opts       options
 }
 
+// NewRange builds and returns ranges from the necessary parameters.
 func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Range {
 	return Range{
 		id:      id,
@@ -57,6 +85,7 @@ func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Ran
 	}
 }
 
+// NewNode builds and returns nodes from the necessary parameters.
 func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 	return Node{
 		id:        id,
@@ -65,28 +94,35 @@ func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
 	}
 }
 
+// New builds, configures, and returns an allocator from the necessary parameters.
 func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	model := solver.NewModel("Lé-Allocator")
 	assignment := make(map[RangeID][]solver.IntVar)
+	// iterate over ranges, assign each rangeID a list of IV's sized r.rf.
+	// These will ultimately then read as: rangeID's replicas assigned to nodes [N.1, N.2,...N.RF]
 	for _, r := range ranges {
 		assignment[r.id] = make([]solver.IntVar, r.rf)
 		for j := range assignment[r.id] {
+			// constrain our IV's to live between [0, len(nodes) - 1].
 			assignment[r.id][j] = model.NewIntVarFromDomain(
 				solver.NewDomain(int64(nodes[0].id), int64(nodes[len(nodes)-1].id)),
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
 	defaultOptions := options{}
+	// assume no maxChurn initially, let the options slice override if needed.
 	defaultOptions.maxChurn = noMaxChurn
 	for _, opt := range opts {
 		opt(&defaultOptions)
 	}
 
+	// build a convenience id-to-struct mapping for ranges.
 	idToRangeMap := make(map[RangeID]Range)
 	for _, r := range ranges {
 		idToRangeMap[r.id] = r
 	}
 
+	// build a convenience id-to-struct mapping for nodes.
 	idToNodeMap := make(map[NodeID]Node)
 	for _, n := range nodes {
 		idToNodeMap[n.id] = n
@@ -101,39 +137,37 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	}
 }
 
+// Print is a utility method that pretty-prints allocation information.
 func (a Allocation) Print() {
 	for rangeID, nodeIDs := range a {
 		fmt.Println("Range with ID: ", rangeID, " on nodes: ", nodeIDs)
 	}
 }
 
-func (a *Allocator) rangeIntVars(r Range) []solver.IntVar {
-	var res []solver.IntVar
-	ns := a.assignment[r.id]
-	for _, k := range ns {
-		res = append(res, k)
-	}
-	return res
-}
-
+// WithNodeCapacity is a closure that configures the allocator to adhere to capacity constraints and load-balance across
+// resources.
 func WithNodeCapacity() Option {
 	return func(opt *options) {
 		opt.withResources = true
 	}
 }
 
+// WithTagMatching is a closure that configures the allocator to perform affine allocations only.
 func WithTagMatching() Option {
 	return func(opt *options) {
 		opt.withTagAffinity = true
 	}
 }
 
+// WithPriorAssignment is a closure that ingests a prior allocation.
 func WithPriorAssignment(prevAssignment map[RangeID][]NodeID) Option {
 	return func(opt *options) {
 		opt.prevAssignment = prevAssignment
 	}
 }
 
+// WithMaxChurn is a closure that inspects and sets a hard limit on the maximum number of moves deviating
+// from some prior assignment.
 func WithMaxChurn(maxChurn int64) Option {
 	return func(opt *options) {
 		if maxChurn < 0 {
@@ -143,6 +177,7 @@ func WithMaxChurn(maxChurn int64) Option {
 	}
 }
 
+// WithChurnMinimized is a closure that configures the allocator to minimize variance from some prior allocation.
 func WithChurnMinimized() Option {
 	return func(opt *options) {
 		opt.withMinimalChurn = true
@@ -150,6 +185,8 @@ func WithChurnMinimized() Option {
 }
 
 func (a *Allocator) adhereToNodeResources() {
+	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
+	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
 	for _, re := range []Resource{DiskResource, Qps} {
 		rawCapacity := int64(0)
@@ -162,9 +199,14 @@ func (a *Allocator) adhereToNodeResources() {
 		}
 		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for resource: %d", re))
 		tasks := make([]solver.Interval, 0)
+		// demands represent the resource requirements placed on each node by potential matches to a range.
 		demands := make([]solver.IntVar, 0)
 		for rID, nIDs := range a.assignment {
 			for i, id := range nIDs {
+				// go over rangeIDs and their respective ivs.
+				// for that specific range, tell the allocator "regardless of where you place this replica, you will
+				// pay a cost of r.resource[re]". What we're asking the allocator to do is then arrange the intervals
+				// in a fashion that does not violate our capacity requirements.
 				toAdd := a.model.NewInterval(
 					id,
 					a.model.NewIntVarFromDomain(solver.NewDomain(1, int64(len(a.nodes))), "Adjusted intervals for upper bounds."),
@@ -175,6 +217,7 @@ func (a *Allocator) adhereToNodeResources() {
 				demands = append(demands, a.model.NewConstant(a.ranges[rID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rID)))
 			}
 		}
+		// set ceiling for interval interleaving.
 		a.model.AddConstraints(
 			solver.NewCumulativeConstraint(capacity,
 				tasks, demands,
@@ -187,6 +230,7 @@ func (a *Allocator) adhereToNodeResources() {
 func (a *Allocator) adhereToNodeTags() {
 	for rID, r := range a.ranges {
 		forbiddenAssignments := make([][]int64, 0)
+		// for each range-node pair, if incompatible, force the allocator to write-off said allocation.
 		for nID, n := range a.nodes {
 			if !rangeTagsAreSubsetOfNodeTags(r.tags, n.tags) {
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nID)})
@@ -200,6 +244,7 @@ func (a *Allocator) adhereToNodeTags() {
 	}
 }
 
+// rangeTagsAreSubsetOfNodeTags returns true iff a range's tags are a subset of a node's tags
 func rangeTagsAreSubsetOfNodeTags(rangeTags []string, nodeTags []string) bool {
 	for _, rangeTag := range rangeTags {
 		foundMatch := false
@@ -224,22 +269,28 @@ func (a *Allocator) adhereToChurnConstraint() {
 	fixedDomain := solver.NewDomain(0, 0)
 
 	for _, r := range a.ranges {
+		// go over ranges, if a range was previously assigned to some node, attempt to keep that assignment as long as
+		// said node still exists in the cluster.
 		if prevNodeIDs, ok := a.opts.prevAssignment[r.id]; ok {
 			for i, iv := range a.assignment[r.id] {
-				newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))
-				a.model.AddConstraints(
-					solver.NewLinearConstraint(
-						solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), fmt.Sprintf("IntVar corresponding to assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))},
-							[]int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
-				toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
+				if _, ok := a.nodes[prevNodeIDs[i]]; ok {
+					newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))
+					a.model.AddConstraints(
+						solver.NewLinearConstraint(
+							solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), fmt.Sprintf("IntVar corresponding to assignment of range:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))},
+								[]int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
+					toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
+				}
 			}
 		}
 	}
 
+	// minimize variance/churn.
 	if a.opts.withMinimalChurn {
 		a.model.Minimize(solver.Sum(solver.AsIntVars(toMinimizeTheSumLiterals)...))
 	}
 
+	// we use the following inequality to deem if maxChurn was set, if so, constrain.
 	if a.opts.maxChurn != noMaxChurn {
 		a.model.AddConstraints(
 			solver.NewAtMostKConstraint(int(a.opts.maxChurn), toMinimizeTheSumLiterals...),
@@ -247,7 +298,10 @@ func (a *Allocator) adhereToChurnConstraint() {
 	}
 }
 
+// Allocate is a terminal method call that returns a status and paired allocation.
+// The status could be false if the existing model is invalid or unsatisfiable.
 func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
+	// add constraints given opts/configurations.
 	if a.opts.withResources {
 		a.adhereToNodeResources()
 	}
