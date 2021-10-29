@@ -1,4 +1,4 @@
-module github.com/irfansharif/allocator
+module github.com/smcheema/allocator
 
 go 1.16
 
