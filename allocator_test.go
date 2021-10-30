@@ -196,6 +196,9 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+
+// Premise : define ranges/nodes with respective demands/resources and ensure the load spread
+// across resources is within some interval. In this case -> [ideal distribution * 0.8, ideal distribution * 1.2] (20% variance from ideal).
 func TestQPSandDiskBalancing(t *testing.T) {
 	const numRanges = 12
 	const rf = 1
