@@ -1,7 +1,7 @@
 package allocator_test
 
 import (
-	"github.com/irfansharif/allocator"
+	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
