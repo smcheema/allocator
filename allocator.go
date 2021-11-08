@@ -81,83 +81,71 @@ type Allocator struct {
 	opts options
 }
 
-type NodeInterface struct{
-	n Node
-	NodeMap map[NodeID]Node
-}
+type NodeMap map[NodeID]Node
+type RangeMap map[RangeID]Range
 
-type RangeInterface struct {
-	r        Range
-	RangeMap map[RangeID]Range
-}
-
-type Cluster interface {
-	ClusterWriter
-}
-
-type ClusterWriter interface{
+type Cluster interface{
 	AddNode()
+	UpdateNodeTags () bool
+	UpdateNodeResources() bool
 	RemoveNode () bool
 	AddRange ()
 	RemoveRange () bool
 }
 
-// AddNode Update or Add a new Node
-func(ni NodeInterface) AddNode() {
-	ni.NodeMap[ni.n.id] = ni.n
+// AddNode Add a new Node
+func (nmap NodeMap) AddNode(id NodeID, tags []string, resources map[Resource]int64) {
+	nmap[id] = Node {
+		id:        id,
+		tags:      tags,
+		resources: resources,
+	}
 }
 
-//Remove the node if its in the map
-func(ni NodeInterface) RemoveNode() bool{
-
-	if _, found := ni.NodeMap[ni.n.id]; found {
-		fmt.Println("Removing Node ", ni.n.id)
-		delete(ni.NodeMap,ni.n.id)
+// UpdateNodeTags Update tags of a Node
+func (nmap NodeMap) UpdateNodeTags(id NodeID, tags []string) bool {
+	if _, found := nmap[id]; found {
+		fmt.Println("Updating Node Tag ", id)
+		nmap[id]= Node {
+			id:        id,
+			tags:      tags,
+			resources: nmap[id].resources,
+		}
 		return true
 	}
-	fmt.Println("Node not found ", ni.n.id)
+	fmt.Println("Node not found ", id)
+	return false
+}
+
+// UpdateNodeResources Update Resources of a Node
+func (nmap NodeMap) UpdateNodeResources(id NodeID, resources map[Resource]int64) bool {
+	if _, found := nmap[id]; found {
+		fmt.Println("Updating Node Resources ", id)
+		nmap[id]= Node {
+			id:        id,
+			tags:      nmap[id].tags,
+			resources: resources,
+		}
+		return true
+	}
+	fmt.Println("Node not found ", id)
+	return false
+}
+
+// RemoveNode Remove the node if its in the map
+func(nmap NodeMap) RemoveNode(n Node) bool{
+
+	if _, found := nmap[n.id]; found {
+		fmt.Println("Removing Node ", n.id)
+		delete(nmap,n.id)
+		return true
+	}
+	fmt.Println("Node not found ", n.id)
 	return true
 }
 
-func(ri RangeInterface) AddRange() {
-	ri.RangeMap[ri.r.id] = ri.r
-}
-
-//Remove the range if its in the map
-func(ri RangeInterface) RemoveRange() bool{
-
-	if _, found := ri.RangeMap[ri.r.id]; found {
-		fmt.Println("Removing Range ", ri.r.id)
-		delete(ri.RangeMap,ri.r.id)
-		return true
-	}
-	fmt.Println("Range not found ", ri.r.id)
-	return true
-}
-
-func createRangeMap(ranges []Range) map[RangeID]Range{
-
-	idToRangeMap := make(map[RangeID]Range)
-	for _, r := range ranges {
-		idToRangeMap[r.id] = r
-	}
-
-	return idToRangeMap
-}
-
-func createNodeMap(nodes []Node) map[NodeID]Node{
-
-	idToNodeMap := make(map[NodeID]Node)
-	for _, n := range nodes {
-		idToNodeMap[n.id] = n
-	}
-
-	return idToNodeMap
-}
-
-// NewRange builds and returns ranges from the necessary parameters.
-func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Range {
-	return Range{
+func(rmap RangeMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
+	rmap[id]= Range{
 		id:      id,
 		rf:      rf,
 		tags:    tags,
@@ -165,27 +153,30 @@ func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Ran
 	}
 }
 
-// NewNode builds and returns nodes from the necessary parameters.
-func NewNode(id NodeID, tags []string, resources map[Resource]int64) Node {
-	return Node{
-		id:        id,
-		tags:      tags,
-		resources: resources,
+// RemoveRange Remove the range if its in the map
+func(rmap RangeMap) RemoveRange(r Range) bool{
+
+	if _, found := rmap[r.id]; found {
+		fmt.Println("Removing Range ", r.id)
+		delete(rmap,r.id)
+		return true
 	}
+	fmt.Println("Range not found ", r.id)
+	return true
 }
 
 // New builds, configures, and returns an allocator from the necessary parameters.
-func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
+func New(idRangeMap RangeMap, idNodeMap NodeMap, opts ...Option) *Allocator {
 	model := solver.NewModel("Lé-Allocator")
 	assignment := make(map[RangeID][]solver.IntVar)
 	// iterate over ranges, assign each rangeID a list of IV's sized r.rf.
 	// These will ultimately then read as: rangeID's replicas assigned to nodes [N.1, N.2,...N.RF]
-	for _, r := range ranges {
+	for _, r := range idRangeMap {
 		assignment[r.id] = make([]solver.IntVar, r.rf)
 		for j := range assignment[r.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
 			assignment[r.id][j] = model.NewIntVarFromDomain(
-				solver.NewDomain(int64(nodes[0].id), int64(nodes[len(nodes)-1].id)),
+				solver.NewDomain(int64(idNodeMap[0].id), int64(idNodeMap[NodeID(len(idNodeMap)-1)].id)),
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
@@ -197,15 +188,9 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 		opt(&defaultOptions)
 	}
 
-	// build a convenience id-to-struct mapping for ranges.
-	idToRangeMap := createRangeMap(ranges)
-
-	// build a convenience id-to-struct mapping for nodes.
-	idToNodeMap := createNodeMap(nodes)
-
 	return &Allocator{
-		ranges:     idToRangeMap,
-		nodes:      idToNodeMap,
+		ranges:     idRangeMap,
+		nodes:      idNodeMap,
 		model:      model,
 		assignment: assignment,
 		opts:       defaultOptions,

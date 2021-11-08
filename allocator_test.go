@@ -190,8 +190,13 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	require.True(t, status)
 
 	const maxChurn = 1
-	badNodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), buildEmptyTags(numNodes))
-	status, allocation = allocator.New(ranges, append(nodes[0:1], badNodes[1:]...), allocator.WithTagMatching(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
+	newTags:=buildEmptyTags(numNodes)
+	for index := 1; index < numNodes; index++ {
+	nodes.UpdateNodeTags(allocator.NodeID(index), newTags[index])
+	}
+
+	//badNodes := buildNodes(numNodes, nodeCapacitySupplier(numNodes, 0), buildEmptyTags(numNodes))
+	status, allocation = allocator.New(ranges, nodes, allocator.WithTagMatching(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -231,25 +236,29 @@ func TestQPSandDiskBalancing(t *testing.T) {
 	}
 }
 
-func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) []allocator.Node {
-	nodes := make([]allocator.Node, numNodes)
-	for index := 0; index < len(nodes); index++ {
-		nodes[index] = allocator.NewNode(
+func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) allocator.NodeMap {
+	//nodes := make([]allocator.Node, numNodes)
+	nodes := make(allocator.NodeMap)
+	var index int64
+	for index = 0; index < numNodes; index++ {
+		nodes.AddNode(
 			allocator.NodeID(index),
 			tags[index],
-			map[allocator.Resource]int64{allocator.DiskResource: nodeCapacities[index]})
+			map[allocator.Resource]int64{allocator.DiskResource: nodeCapacities[index]},
+			)
 	}
 	return nodes
 }
 
-func buildRanges(numRanges int64, rf int, demands []map[allocator.Resource]int64, tags [][]string) []allocator.Range {
-	rangesToAllocate := make([]allocator.Range, numRanges)
-	for i := range rangesToAllocate {
-		rangesToAllocate[i] = allocator.NewRange(
-			allocator.RangeID(i),
+func buildRanges(numRanges int64, rf int, demands []map[allocator.Resource]int64, tags [][]string) allocator.RangeMap {
+	rangesToAllocate := make(allocator.RangeMap)
+	var index int64
+	for index = 0; index < numRanges; index++ {
+		rangesToAllocate.AddRange(
+			allocator.RangeID(index),
 			rf,
-			tags[i],
-			demands[i])
+			tags[index],
+			demands[index])
 	}
 	return rangesToAllocate
 }
