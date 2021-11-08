@@ -81,6 +81,80 @@ type Allocator struct {
 	opts options
 }
 
+type NodeInterface struct{
+	n Node
+	NodeMap map[NodeID]Node
+}
+
+type RangeInterface struct {
+	r        Range
+	RangeMap map[RangeID]Range
+}
+
+type Cluster interface {
+	ClusterWriter
+}
+
+type ClusterWriter interface{
+	AddNode()
+	RemoveNode () bool
+	AddRange ()
+	RemoveRange () bool
+}
+
+// AddNode Update or Add a new Node
+func(ni NodeInterface) AddNode() {
+	ni.NodeMap[ni.n.id] = ni.n
+}
+
+//Remove the node if its in the map
+func(ni NodeInterface) RemoveNode() bool{
+
+	if _, found := ni.NodeMap[ni.n.id]; found {
+		fmt.Println("Removing Node ", ni.n.id)
+		delete(ni.NodeMap,ni.n.id)
+		return true
+	}
+	fmt.Println("Node not found ", ni.n.id)
+	return true
+}
+
+func(ri RangeInterface) AddRange() {
+	ri.RangeMap[ri.r.id] = ri.r
+}
+
+//Remove the range if its in the map
+func(ri RangeInterface) RemoveRange() bool{
+
+	if _, found := ri.RangeMap[ri.r.id]; found {
+		fmt.Println("Removing Range ", ri.r.id)
+		delete(ri.RangeMap,ri.r.id)
+		return true
+	}
+	fmt.Println("Range not found ", ri.r.id)
+	return true
+}
+
+func createRangeMap(ranges []Range) map[RangeID]Range{
+
+	idToRangeMap := make(map[RangeID]Range)
+	for _, r := range ranges {
+		idToRangeMap[r.id] = r
+	}
+
+	return idToRangeMap
+}
+
+func createNodeMap(nodes []Node) map[NodeID]Node{
+
+	idToNodeMap := make(map[NodeID]Node)
+	for _, n := range nodes {
+		idToNodeMap[n.id] = n
+	}
+
+	return idToNodeMap
+}
+
 // NewRange builds and returns ranges from the necessary parameters.
 func NewRange(id RangeID, rf int, tags []string, demands map[Resource]int64) Range {
 	return Range{
@@ -124,16 +198,10 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	}
 
 	// build a convenience id-to-struct mapping for ranges.
-	idToRangeMap := make(map[RangeID]Range)
-	for _, r := range ranges {
-		idToRangeMap[r.id] = r
-	}
+	idToRangeMap := createRangeMap(ranges)
 
 	// build a convenience id-to-struct mapping for nodes.
-	idToNodeMap := make(map[NodeID]Node)
-	for _, n := range nodes {
-		idToNodeMap[n.id] = n
-	}
+	idToNodeMap := createNodeMap(nodes)
 
 	return &Allocator{
 		ranges:     idToRangeMap,
