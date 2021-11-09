@@ -45,7 +45,7 @@ type Node struct {
 	// tags are strings that showcase affinity for ranges.
 	tags []string
 	// resources model the resource profile of said node.
-	resources map[Resource]int64
+	resources map[Resource]*int64
 }
 
 // options hold runtime allocation configurations.
@@ -70,9 +70,9 @@ type Option func(*options)
 // Allocator holds the ranges, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type Allocator struct {
 	// ranges are a mapping of RangeID onto the Range struct.
-	ranges map[RangeID]Range
+	ranges map[RangeID]*Range
 	// nodes are a mapping of NodeID onto the Node struct.
-	nodes map[NodeID]Node
+	nodes map[NodeID]*Node
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
@@ -81,36 +81,24 @@ type Allocator struct {
 	opts options
 }
 
-type NodeMap map[NodeID]Node
-type RangeMap map[RangeID]Range
+type ClusterNMap map[NodeID]*Node
+type ClusterRMap map[RangeID]*Range
 
-type Cluster interface{
-	AddNode()
-	UpdateNodeTags () bool
-	UpdateNodeResources() bool
-	RemoveNode () bool
-	AddRange ()
-	RemoveRange () bool
-}
 
 // AddNode Add a new Node
-func (nmap NodeMap) AddNode(id NodeID, tags []string, resources map[Resource]int64) {
-	nmap[id] = Node {
+func (nmap ClusterNMap) AddNode(id NodeID, tags []string, nodeCapacity int64) {
+	nmap[id] = &Node {
 		id:        id,
 		tags:      tags,
-		resources: resources,
+		resources: map[Resource]*int64 {DiskResource: &nodeCapacity},
 	}
 }
 
 // UpdateNodeTags Update tags of a Node
-func (nmap NodeMap) UpdateNodeTags(id NodeID, tags []string) bool {
+func (nmap ClusterNMap) UpdateNodeTags(id NodeID, tags []string) bool {
 	if _, found := nmap[id]; found {
 		fmt.Println("Updating Node Tag ", id)
-		nmap[id]= Node {
-			id:        id,
-			tags:      tags,
-			resources: nmap[id].resources,
-		}
+		nmap[id].tags=tags
 		return true
 	}
 	fmt.Println("Node not found ", id)
@@ -118,14 +106,10 @@ func (nmap NodeMap) UpdateNodeTags(id NodeID, tags []string) bool {
 }
 
 // UpdateNodeResources Update Resources of a Node
-func (nmap NodeMap) UpdateNodeResources(id NodeID, resources map[Resource]int64) bool {
+func (nmap ClusterNMap) UpdateNodeCapacity(id NodeID, nodeCapacity int64) bool {
 	if _, found := nmap[id]; found {
 		fmt.Println("Updating Node Resources ", id)
-		nmap[id]= Node {
-			id:        id,
-			tags:      nmap[id].tags,
-			resources: resources,
-		}
+		nmap[id].resources[DiskResource]=&nodeCapacity
 		return true
 	}
 	fmt.Println("Node not found ", id)
@@ -133,7 +117,7 @@ func (nmap NodeMap) UpdateNodeResources(id NodeID, resources map[Resource]int64)
 }
 
 // RemoveNode Remove the node if its in the map
-func(nmap NodeMap) RemoveNode(n Node) bool{
+func(nmap ClusterNMap) RemoveNode(n Node) bool{
 
 	if _, found := nmap[n.id]; found {
 		fmt.Println("Removing Node ", n.id)
@@ -144,8 +128,8 @@ func(nmap NodeMap) RemoveNode(n Node) bool{
 	return true
 }
 
-func(rmap RangeMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
-	rmap[id]= Range{
+func(rmap ClusterRMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
+	rmap[id]= &Range{
 		id:      id,
 		rf:      rf,
 		tags:    tags,
@@ -154,7 +138,7 @@ func(rmap RangeMap) AddRange(id RangeID, rf int, tags []string, demands map[Reso
 }
 
 // RemoveRange Remove the range if its in the map
-func(rmap RangeMap) RemoveRange(r Range) bool{
+func(rmap ClusterRMap) RemoveRange(r Range) bool{
 
 	if _, found := rmap[r.id]; found {
 		fmt.Println("Removing Range ", r.id)
@@ -165,8 +149,30 @@ func(rmap RangeMap) RemoveRange(r Range) bool{
 	return true
 }
 
+// UpdateRangeTags Update tags of Range
+func (rmap ClusterRMap) UpdateRangeTags(id RangeID, tags []string) bool {
+	if _, found := rmap[id]; found {
+		fmt.Println("Updating Range Tag ", id)
+		rmap[id].tags=tags
+		return true
+	}
+	fmt.Println("Range not found ", id)
+	return false
+}
+
+// UpdateRangeTags Update Demands of Range
+func (rmap ClusterRMap) UpdateRangeDemands(id RangeID, demands map[Resource]int64) bool {
+	if _, found := rmap[id]; found {
+		fmt.Println("Updating Range Demands ", id)
+		rmap[id].demands=demands
+		return true
+	}
+	fmt.Println("Range not found ", id)
+	return false
+}
+
 // New builds, configures, and returns an allocator from the necessary parameters.
-func New(idRangeMap RangeMap, idNodeMap NodeMap, opts ...Option) *Allocator {
+func New(idRangeMap ClusterRMap, idClusterNMap ClusterNMap, opts ...Option) *Allocator {
 	model := solver.NewModel("Lé-Allocator")
 	assignment := make(map[RangeID][]solver.IntVar)
 	// iterate over ranges, assign each rangeID a list of IV's sized r.rf.
@@ -176,7 +182,7 @@ func New(idRangeMap RangeMap, idNodeMap NodeMap, opts ...Option) *Allocator {
 		for j := range assignment[r.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
 			assignment[r.id][j] = model.NewIntVarFromDomain(
-				solver.NewDomain(int64(idNodeMap[0].id), int64(idNodeMap[NodeID(len(idNodeMap)-1)].id)),
+				solver.NewDomain(int64(idClusterNMap[0].id), int64(idClusterNMap[NodeID(len(idClusterNMap)-1)].id)),
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
@@ -190,7 +196,7 @@ func New(idRangeMap RangeMap, idNodeMap NodeMap, opts ...Option) *Allocator {
 
 	return &Allocator{
 		ranges:     idRangeMap,
-		nodes:      idNodeMap,
+		nodes:      idClusterNMap,
 		model:      model,
 		assignment: assignment,
 		opts:       defaultOptions,
@@ -260,7 +266,7 @@ func (a *Allocator) adhereToResourcesAndBalance() {
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
 		if c, ok := a.nodes[0].resources[re]; ok {
-			rawCapacity = c
+			rawCapacity = *c
 		} else {
 			for _, r := range a.ranges {
 				rawCapacity += r.demands[re]
