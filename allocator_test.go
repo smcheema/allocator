@@ -236,22 +236,22 @@ func TestQPSandDiskBalancing(t *testing.T) {
 	}
 }
 
-func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) allocator.NodeMap {
+func buildNodes(numNodes int64, nodeCapacities []int64, tags [][]string) allocator.ClusterNMap {
 	//nodes := make([]allocator.Node, numNodes)
-	nodes := make(allocator.NodeMap)
+	nodes := make(allocator.ClusterNMap)
 	var index int64
 	for index = 0; index < numNodes; index++ {
 		nodes.AddNode(
 			allocator.NodeID(index),
 			tags[index],
-			map[allocator.Resource]int64{allocator.DiskResource: nodeCapacities[index]},
+			nodeCapacities[index],
 			)
 	}
 	return nodes
 }
 
-func buildRanges(numRanges int64, rf int, demands []map[allocator.Resource]int64, tags [][]string) allocator.RangeMap {
-	rangesToAllocate := make(allocator.RangeMap)
+func buildRanges(numRanges int64, rf int, demands []map[allocator.Resource]int64, tags [][]string) allocator.ClusterRMap {
+	rangesToAllocate := make(allocator.ClusterRMap)
 	var index int64
 	for index = 0; index < numRanges; index++ {
 		rangesToAllocate.AddRange(
