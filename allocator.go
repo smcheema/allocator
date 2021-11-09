@@ -83,8 +83,8 @@ type ClusterRMap map[RangeID]*Range
 
 
 // AddNode Add a new Node
-func (nmap ClusterNMap) AddNode(id NodeID, tags []string, nodeCapacity int64) {
-	nmap[id] = &Node {
+func (nmap *ClusterNMap) AddNode(id NodeID, tags []string, nodeCapacity int64) {
+	(*nmap)[id] = &Node {
 		id:        id,
 		tags:      tags,
 		resources: map[Resource]*int64 {DiskResource: &nodeCapacity},
@@ -92,10 +92,10 @@ func (nmap ClusterNMap) AddNode(id NodeID, tags []string, nodeCapacity int64) {
 }
 
 // UpdateNodeTags Update tags of a Node
-func (nmap ClusterNMap) UpdateNodeTags(id NodeID, tags []string) bool {
-	if _, found := nmap[id]; found {
+func (nmap *ClusterNMap) UpdateNodeTags(id NodeID, tags []string) bool {
+	if _, found := (*nmap)[id]; found {
 		fmt.Println("Updating Node Tag ", id)
-		nmap[id].tags=tags
+		(*nmap)[id].tags=tags
 		return true
 	}
 	fmt.Println("Node not found ", id)
@@ -103,10 +103,10 @@ func (nmap ClusterNMap) UpdateNodeTags(id NodeID, tags []string) bool {
 }
 
 // UpdateNodeResources Update Resources of a Node
-func (nmap ClusterNMap) UpdateNodeCapacity(id NodeID, nodeCapacity int64) bool {
-	if _, found := nmap[id]; found {
+func (nmap *ClusterNMap) UpdateNodeCapacity(id NodeID, nodeCapacity int64) bool {
+	if _, found := (*nmap)[id]; found {
 		fmt.Println("Updating Node Resources ", id)
-		nmap[id].resources[DiskResource]=&nodeCapacity
+		(*nmap)[id].resources[DiskResource]=&nodeCapacity
 		return true
 	}
 	fmt.Println("Node not found ", id)
@@ -114,19 +114,19 @@ func (nmap ClusterNMap) UpdateNodeCapacity(id NodeID, nodeCapacity int64) bool {
 }
 
 // RemoveNode Remove the node if its in the map
-func(nmap ClusterNMap) RemoveNode(n Node) bool{
+func(nmap *ClusterNMap) RemoveNode(n Node) bool{
 
-	if _, found := nmap[n.id]; found {
+	if _, found := (*nmap)[n.id]; found {
 		fmt.Println("Removing Node ", n.id)
-		delete(nmap,n.id)
+		delete((*nmap),n.id)
 		return true
 	}
 	fmt.Println("Node not found ", n.id)
 	return true
 }
 
-func(rmap ClusterRMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
-	rmap[id]= &Range{
+func(rmap *ClusterRMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
+	(*rmap)[id]= &Range{
 		id:      id,
 		rf:      rf,
 		tags:    tags,
@@ -135,11 +135,11 @@ func(rmap ClusterRMap) AddRange(id RangeID, rf int, tags []string, demands map[R
 }
 
 // RemoveRange Remove the range if its in the map
-func(rmap ClusterRMap) RemoveRange(r Range) bool{
+func(rmap *ClusterRMap) RemoveRange(r Range) bool{
 
-	if _, found := rmap[r.id]; found {
+	if _, found := (*rmap)[r.id]; found {
 		fmt.Println("Removing Range ", r.id)
-		delete(rmap,r.id)
+		delete((*rmap),r.id)
 		return true
 	}
 	fmt.Println("Range not found ", r.id)
@@ -147,10 +147,10 @@ func(rmap ClusterRMap) RemoveRange(r Range) bool{
 }
 
 // UpdateRangeTags Update tags of Range
-func (rmap ClusterRMap) UpdateRangeTags(id RangeID, tags []string) bool {
-	if _, found := rmap[id]; found {
+func (rmap *ClusterRMap) UpdateRangeTags(id RangeID, tags []string) bool {
+	if _, found := (*rmap)[id]; found {
 		fmt.Println("Updating Range Tag ", id)
-		rmap[id].tags=tags
+		(*rmap)[id].tags=tags
 		return true
 	}
 	fmt.Println("Range not found ", id)
@@ -158,10 +158,10 @@ func (rmap ClusterRMap) UpdateRangeTags(id RangeID, tags []string) bool {
 }
 
 // UpdateRangeTags Update Demands of Range
-func (rmap ClusterRMap) UpdateRangeDemands(id RangeID, demands map[Resource]int64) bool {
-	if _, found := rmap[id]; found {
+func (rmap *ClusterRMap) UpdateRangeDemands(id RangeID, demands map[Resource]int64) bool {
+	if _, found := (*rmap)[id]; found {
 		fmt.Println("Updating Range Demands ", id)
-		rmap[id].demands=demands
+		(*rmap)[id].demands=demands
 		return true
 	}
 	fmt.Println("Range not found ", id)
