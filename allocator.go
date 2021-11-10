@@ -341,7 +341,7 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 
 	// set a hard time limit of 10s on our solver.
 	result := a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
-	if result.Infeasible() || result.Invalid() {
+	if !(result.Feasible() || result.Optimal()) {
 		return false, nil
 	}
 
