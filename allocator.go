@@ -20,8 +20,9 @@ type Resource int
 type Allocation map[RangeID][]NodeID
 
 const (
-	noMaxChurn            = -1
-	DiskResource Resource = iota
+	noMaxChurn              = -1
+	defaultTimeout          = time.Second * 10
+	DiskResource   Resource = iota
 	Qps
 )
 
@@ -59,6 +60,8 @@ type options struct {
 	maxChurn int64
 	// prevAssignment holds some prior allocation.
 	prevAssignment map[RangeID][]NodeID
+	// searchTimeout forces the solver to return within the specified duration.
+	searchTimeout time.Duration
 }
 
 // Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -115,6 +118,7 @@ func New(ranges []Range, nodes []Node, opts ...Option) *Allocator {
 	defaultOptions := options{}
 	// assume no maxChurn initially, let the options slice override if needed.
 	defaultOptions.maxChurn = noMaxChurn
+	defaultOptions.searchTimeout = defaultTimeout
 	for _, opt := range opts {
 		opt(&defaultOptions)
 	}
@@ -147,9 +151,9 @@ func (a Allocation) Print() {
 	}
 }
 
-// WithNodeCapacity is a closure that configures the allocator to adhere to capacity constraints and load-balance across
+// WithResources is a closure that configures the allocator to adhere to capacity constraints and load-balance across
 // resources.
-func WithNodeCapacity() Option {
+func WithResources() Option {
 	return func(opt *options) {
 		opt.withResources = true
 	}
@@ -187,7 +191,14 @@ func WithChurnMinimized() Option {
 	}
 }
 
-func (a *Allocator) adhereToNodeResources() {
+// WithTimeout is a closure that configures the allocator to conclude its search within the duration provided.
+func WithTimeout(searchTimeout time.Duration) Option {
+	return func(opt *options) {
+		opt.searchTimeout = searchTimeout
+	}
+}
+
+func (a *Allocator) adhereToResourcesAndBalance() {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
@@ -308,7 +319,7 @@ func (a *Allocator) adhereToChurnConstraint() {
 func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 	// add constraints given opts/configurations.
 	if a.opts.withResources {
-		a.adhereToNodeResources()
+		a.adhereToResourcesAndBalance()
 	}
 
 	if a.opts.withTagAffinity {
@@ -329,8 +340,8 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 	}
 
 	// set a hard time limit of 10s on our solver.
-	result := a.model.Solve(solver.WithTimeout(time.Second * 10))
-	if result.Infeasible() || result.Invalid() {
+	result := a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
+	if !(result.Feasible() || result.Optimal()) {
 		return false, nil
 	}
 

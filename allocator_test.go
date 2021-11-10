@@ -58,7 +58,7 @@ func TestCapacity(t *testing.T) {
 		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: int64(i)}
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithResources()).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -79,7 +79,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	}
 	nodes := buildNodes(numNodes, clusterCapacities, buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithResources()).Allocate()
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -102,7 +102,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 	}
 	nodes := buildNodes(numNodes, clusterCapacities, buildEmptyTags(numNodes))
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithResources()).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -119,7 +119,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 		rangeDemands[i] = map[allocator.Resource]int64{allocator.DiskResource: rangeSizeDemands[i]}
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithResources()).Allocate()
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -212,7 +212,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		qpsDemands += i
 	}
 	ranges := buildRanges(numRanges, rf, rangeDemands, buildEmptyTags(numRanges))
-	status, allocation := allocator.New(ranges, nodes, allocator.WithNodeCapacity()).Allocate()
+	status, allocation := allocator.New(ranges, nodes, allocator.WithResources()).Allocate()
 	require.True(t, status)
 	reasonableVariance := 0.2
 	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
