@@ -6,45 +6,45 @@ import (
 	"time"
 )
 
-// NodeID is a 64-bit identifier for nodes.
-type NodeID int64
+// nodeId is a 64-bit identifier for nodes.
+type nodeId int64
 
-// RangeID is a 64-bit identifier for ranges.
-type RangeID int64
+// rangeId is a 64-bit identifier for ranges.
+type rangeId int64
 
-// Resource is 32-bit identifier for resources -> {Disk, Qps}
-type Resource int
+// resource is 32-bit identifier for resources -> {disk, qps}
+type resource int
 
 // Allocation is the return type of our allocator.
 // It models mappings of RangeIDs to a list of NodeIDs.
-type Allocation map[RangeID][]NodeID
+type Allocation map[int64][]int64
 
 const (
 	noMaxChurn            = -1
-	DiskResource Resource = iota
-	Qps
+	diskResource resource = iota
+	qps
 )
 
-// Range encapsulates pertaining metadata for cockroachDB ranges.
-type Range struct {
+// ckRange encapsulates pertaining metadata for cockroachDB ranges.
+type ckRange struct {
 	// id represents a unique identifier.
-	id RangeID
+	id rangeId
 	// rf equals the replication factor of said range.
 	rf int
 	// tags are strings that showcase affinity for nodes.
 	tags []string
 	// demands model the resource requirements of said range.
-	demands map[Resource]int64
+	demands map[resource]int64
 }
 
-// Node encapsulates pertaining metadata for cockroachDB nodes.
-type Node struct {
+// node encapsulates pertaining metadata for cockroachDB nodes.
+type node struct {
 	// id represents a unique identifier.
-	id NodeID
+	id nodeId
 	// tags are strings that showcase affinity for ranges.
 	tags []string
 	// resources model the resource profile of said node.
-	resources map[Resource]*int64
+	resources map[resource]int64
 }
 
 // options hold runtime allocation configurations.
@@ -58,7 +58,7 @@ type options struct {
 	// maxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
 	maxChurn int64
 	// prevAssignment holds some prior allocation.
-	prevAssignment map[RangeID][]NodeID
+	prevAssignment map[rangeId][]nodeId
 }
 
 // Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -66,123 +66,130 @@ type Option func(*options)
 
 // Allocator holds the ranges, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type Allocator struct {
-	// ranges are a mapping of RangeID onto the Range struct.
-	ranges map[RangeID]*Range
-	// nodes are a mapping of NodeID onto the Node struct.
-	nodes map[NodeID]*Node
+	// ranges are a mapping of rangeId onto the ckRange struct.
+	ranges map[rangeId]*ckRange
+	// nodes are a mapping of nodeId onto the node struct.
+	nodes map[nodeId]*node
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
-	assignment map[RangeID][]solver.IntVar
+	assignment map[rangeId][]solver.IntVar
 	// opts hold allocation configurations -> {withResources, withTagAffinity...}
 	opts options
 }
 
-type ClusterNMap map[NodeID]*Node
-type ClusterRMap map[RangeID]*Range
+type Cluster struct {
+	nodes map[nodeId]*node
+}
+type Items struct {
+	ranges map[rangeId]*ckRange
+}
 
+func NewCluster() Cluster {
+	return Cluster{
+		nodes: make(map[nodeId]*node),
+	}
+}
 
-// AddNode Add a new Node
-func (nmap *ClusterNMap) AddNode(id NodeID, tags []string, nodeCapacity int64) {
-	(*nmap)[id] = &Node {
-		id:        id,
+func NewItems() Items {
+	return Items{
+		ranges: make(map[rangeId]*ckRange),
+	}
+}
+
+// AddNode adds a node into the cluster collection.
+func (c Cluster) AddNode(id int64, nodeCapacity int64, tags ...string) {
+	c.nodes[nodeId(id)] = &node{
+		id:        nodeId(id),
 		tags:      tags,
-		resources: map[Resource]*int64 {DiskResource: &nodeCapacity},
+		resources: map[resource]int64{diskResource: nodeCapacity},
 	}
 }
 
-// UpdateNodeTags Update tags of a Node
-func (nmap *ClusterNMap) UpdateNodeTags(id NodeID, tags []string) bool {
-	if _, found := (*nmap)[id]; found {
-		fmt.Println("Updating Node Tag ", id)
-		(*nmap)[id].tags=tags
+// UpdateNodeTags updates the tags for a node currently residing in the cluster collection,
+// returning true for a successful update, false if the nodeID does not map to any node.
+func (c Cluster) UpdateNodeTags(id int64, tags ...string) bool {
+	if n, found := c.nodes[nodeId(id)]; found {
+		n.tags = tags
 		return true
 	}
-	fmt.Println("Node not found ", id)
 	return false
 }
 
-// UpdateNodeResources Update Resources of a Node
-func (nmap *ClusterNMap) UpdateNodeCapacity(id NodeID, nodeCapacity int64) bool {
-	if _, found := (*nmap)[id]; found {
-		fmt.Println("Updating Node Resources ", id)
-		(*nmap)[id].resources[DiskResource]=&nodeCapacity
+// UpdateNodeCapacity updates the disk-capacity for a node currently residing in the cluster collection,
+// returning true for a successful update, false if the nodeID does not map to any node.
+func (c Cluster) UpdateNodeCapacity(id int64, nodeCapacity int64) bool {
+	if n, found := c.nodes[nodeId(id)]; found {
+		n.resources[diskResource] = nodeCapacity
 		return true
 	}
-	fmt.Println("Node not found ", id)
 	return false
 }
 
-// RemoveNode Remove the node if its in the map
-func(nmap *ClusterNMap) RemoveNode(n Node) bool{
-
-	if _, found := (*nmap)[n.id]; found {
-		fmt.Println("Removing Node ", n.id)
-		delete((*nmap),n.id)
+// RemoveNode removes a given node from the cluster collection, returning true is the deletion is successful,
+// false if the nodeID does not map to any node.
+func (c Cluster) RemoveNode(id int64) bool {
+	if _, found := c.nodes[nodeId(id)]; found {
+		delete(c.nodes, nodeId(id))
 		return true
 	}
-	fmt.Println("Node not found ", n.id)
-	return true
+	return false
 }
 
-func(rmap *ClusterRMap) AddRange(id RangeID, rf int, tags []string, demands map[Resource]int64) {
-	(*rmap)[id]= &Range{
-		id:      id,
+// AddRange adds a range into the items' collection.
+func (i Items) AddRange(id int64, rf int, diskDemand int64, q int64, tags ...string) {
+	i.ranges[rangeId(id)] = &ckRange{
+		id:      rangeId(id),
 		rf:      rf,
 		tags:    tags,
-		demands: demands,
+		demands: map[resource]int64{diskResource: diskDemand, qps: q},
 	}
 }
 
-// RemoveRange Remove the range if its in the map
-func(rmap *ClusterRMap) RemoveRange(r Range) bool{
-
-	if _, found := (*rmap)[r.id]; found {
-		fmt.Println("Removing Range ", r.id)
-		delete((*rmap),r.id)
+// RemoveRange removes a given range from the items' collection, returning true is the deletion is successful,
+// false if the rangeID does not map to any range.
+func (i Items) RemoveRange(id int64) bool {
+	if _, found := i.ranges[rangeId(id)]; found {
+		delete(i.ranges, rangeId(id))
 		return true
 	}
-	fmt.Println("Range not found ", r.id)
-	return true
-}
-
-// UpdateRangeTags Update tags of Range
-func (rmap *ClusterRMap) UpdateRangeTags(id RangeID, tags []string) bool {
-	if _, found := (*rmap)[id]; found {
-		fmt.Println("Updating Range Tag ", id)
-		(*rmap)[id].tags=tags
-		return true
-	}
-	fmt.Println("Range not found ", id)
 	return false
 }
 
-// UpdateRangeTags Update Demands of Range
-func (rmap *ClusterRMap) UpdateRangeDemands(id RangeID, demands map[Resource]int64) bool {
-	if _, found := (*rmap)[id]; found {
-		fmt.Println("Updating Range Demands ", id)
-		(*rmap)[id].demands=demands
+// UpdateRangeTags updates the tags for a range currently residing in the items' collection,
+// returning true for a successful update, false if the rangeID does not map to any range.
+func (i Items) UpdateRangeTags(id int64, tags ...string) bool {
+	if r, found := i.ranges[rangeId(id)]; found {
+		r.tags = tags
 		return true
 	}
-	fmt.Println("Range not found ", id)
+	return false
+}
+
+// UpdateRangeDiskDemand updates the disk-demand for a range currently residing in the items' collection,
+// returning true for a successful update, false if the rangeID does not map to any range.
+func (i Items) UpdateRangeDiskDemand(id rangeId, diskDemand int64) bool {
+	if r, found := i.ranges[id]; found {
+		r.demands[diskResource] = diskDemand
+		return true
+	}
+	return false
+}
+
+// UpdateRangeQps updates the qps for a range currently residing in the items' collection,
+// returning true for a successful update, false if the rangeID does not map to any range.
+func (i Items) UpdateRangeQps(id int64, q int64) bool {
+	if r, found := i.ranges[rangeId(id)]; found {
+		r.demands[qps] = q
+		return true
+	}
 	return false
 }
 
 // New builds, configures, and returns an allocator from the necessary parameters.
-func New(idRangeMap ClusterRMap, idClusterNMap ClusterNMap, opts ...Option) *Allocator {
+func New(opts ...Option) *Allocator {
 	model := solver.NewModel("Lé-Allocator")
-	assignment := make(map[RangeID][]solver.IntVar)
-	// iterate over ranges, assign each rangeID a list of IV's sized r.rf.
-	// These will ultimately then read as: rangeID's replicas assigned to nodes [N.1, N.2,...N.RF]
-	for _, r := range idRangeMap {
-		assignment[r.id] = make([]solver.IntVar, r.rf)
-		for j := range assignment[r.id] {
-			// constrain our IV's to live between [0, len(nodes) - 1].
-			assignment[r.id][j] = model.NewIntVarFromDomain(
-				solver.NewDomain(int64(idClusterNMap[0].id), int64(idClusterNMap[NodeID(len(idClusterNMap)-1)].id)),
-				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
-		}
-	}
+	assignment := make(map[rangeId][]solver.IntVar)
 	defaultOptions := options{}
 	// assume no maxChurn initially, let the options slice override if needed.
 	defaultOptions.maxChurn = noMaxChurn
@@ -191,8 +198,6 @@ func New(idRangeMap ClusterRMap, idClusterNMap ClusterNMap, opts ...Option) *All
 	}
 
 	return &Allocator{
-		ranges:     idRangeMap,
-		nodes:      idClusterNMap,
 		model:      model,
 		assignment: assignment,
 		opts:       defaultOptions,
@@ -202,7 +207,7 @@ func New(idRangeMap ClusterRMap, idClusterNMap ClusterNMap, opts ...Option) *All
 // Print is a utility method that pretty-prints allocation information.
 func (a Allocation) Print() {
 	for rangeID, nodeIDs := range a {
-		fmt.Println("Range with ID: ", rangeID, " on nodes: ", nodeIDs)
+		fmt.Println("ckRange with ID: ", rangeID, " on nodes: ", nodeIDs)
 	}
 }
 
@@ -222,9 +227,16 @@ func WithTagMatching() Option {
 }
 
 // WithPriorAssignment is a closure that ingests a prior allocation.
-func WithPriorAssignment(prevAssignment map[RangeID][]NodeID) Option {
+func WithPriorAssignment(prevAssignment map[int64][]int64) Option {
+	temp := make(map[rangeId][]nodeId)
+	for r, n := range prevAssignment {
+		temp[rangeId(r)] = make([]nodeId, len(n))
+		for nid := range n {
+			temp[rangeId(r)] = append(temp[rangeId(r)], nodeId(nid))
+		}
+	}
 	return func(opt *options) {
-		opt.prevAssignment = prevAssignment
+		opt.prevAssignment = temp
 	}
 }
 
@@ -250,12 +262,12 @@ func (a *Allocator) adhereToNodeResources() {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
-	for _, re := range []Resource{DiskResource, Qps} {
+	for _, re := range []resource{diskResource, qps} {
 		rawCapacity := int64(0)
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
 		if c, ok := a.nodes[0].resources[re]; ok {
-			rawCapacity = *c
+			rawCapacity = c
 		} else {
 			for _, r := range a.ranges {
 				rawCapacity += r.demands[re]
@@ -364,7 +376,20 @@ func (a *Allocator) adhereToChurnConstraint() {
 
 // Allocate is a terminal method call that returns a status and paired allocation.
 // The status could be false if the existing model is invalid or unsatisfiable.
-func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
+func (a *Allocator) Allocate(cluster Cluster, items Items) (ok bool, allocation Allocation) {
+	a.nodes = cluster.nodes
+	a.ranges = items.ranges
+	// iterate over ranges, assign each rangeID a list of IV's sized r.rf.
+	// These will ultimately then read as: rangeID's replicas assigned to nodes [N.1, N.2,...N.RF]
+	for _, r := range a.ranges {
+		a.assignment[r.id] = make([]solver.IntVar, r.rf)
+		for j := range a.assignment[r.id] {
+			// constrain our IV's to live between [0, len(nodes) - 1].
+			a.assignment[r.id][j] = a.model.NewIntVarFromDomain(
+				solver.NewDomain(int64(a.nodes[0].id), int64(a.nodes[nodeId(len(a.nodes)-1)].id)),
+				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
+		}
+	}
 	// add constraints given opts/configurations.
 	if a.opts.withResources {
 		a.adhereToNodeResources()
@@ -398,7 +423,7 @@ func (a *Allocator) Allocate() (ok bool, allocation Allocation) {
 		nodes := a.assignment[rID]
 		for _, n := range nodes {
 			allocated := result.Value(n)
-			res[r.id] = append(res[r.id], NodeID(allocated))
+			res[int64(r.id)] = append(res[int64(r.id)], allocated)
 		}
 	}
 	return true, res
