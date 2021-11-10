@@ -102,6 +102,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	for i := 0; i < numRanges; i++ {
 		ranges.AddRange(int64(i), rf, rangeSizeDemands[i], 0)
 	}
+
 	status, allocation := allocator.New(allocator.WithResources()).Allocate(nodes, ranges)
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
