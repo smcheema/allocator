@@ -235,8 +235,8 @@ func WithPriorAssignment(prevAssignment map[int64][]int64) Option {
 	temp := make(map[rangeId][]nodeId)
 	for r, n := range prevAssignment {
 		temp[rangeId(r)] = make([]nodeId, len(n))
-		for nid := range n {
-			temp[rangeId(r)] = append(temp[rangeId(r)], nodeId(nid))
+		for i, nid := range n {
+			temp[rangeId(r)][i] = nodeId(nid)
 		}
 	}
 	return func(opt *options) {
