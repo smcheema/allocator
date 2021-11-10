@@ -20,9 +20,9 @@ type resource int
 type Allocation map[int64][]int64
 
 const (
-	noMaxChurn            = -1
+	noMaxChurn              = -1
 	defaultTimeout          = time.Second * 10
-	diskResource resource = iota
+	diskResource   resource = iota
 	qps
 )
 
