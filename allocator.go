@@ -67,9 +67,9 @@ type Option func(*options)
 // Allocator holds the ranges, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type Allocator struct {
 	// ranges are a mapping of rangeId onto the ckRange struct.
-	ranges map[rangeId]*ckRange
+	ranges map[rangeId]ckRange
 	// nodes are a mapping of nodeId onto the node struct.
-	nodes map[nodeId]*node
+	nodes map[nodeId]node
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
@@ -79,27 +79,27 @@ type Allocator struct {
 }
 
 type Cluster struct {
-	nodes map[nodeId]*node
+	nodes map[nodeId]node
 }
 type Items struct {
-	ranges map[rangeId]*ckRange
+	ranges map[rangeId]ckRange
 }
 
 func NewCluster() Cluster {
 	return Cluster{
-		nodes: make(map[nodeId]*node),
+		nodes: make(map[nodeId]node),
 	}
 }
 
 func NewItems() Items {
 	return Items{
-		ranges: make(map[rangeId]*ckRange),
+		ranges: make(map[rangeId]ckRange),
 	}
 }
 
 // AddNode adds a node into the cluster collection.
 func (c Cluster) AddNode(id int64, nodeCapacity int64, tags ...string) {
-	c.nodes[nodeId(id)] = &node{
+	c.nodes[nodeId(id)] = node{
 		id:        nodeId(id),
 		tags:      tags,
 		resources: map[resource]int64{diskResource: nodeCapacity},
@@ -138,7 +138,7 @@ func (c Cluster) RemoveNode(id int64) bool {
 
 // AddRange adds a range into the items' collection.
 func (i Items) AddRange(id int64, rf int, diskDemand int64, q int64, tags ...string) {
-	i.ranges[rangeId(id)] = &ckRange{
+	i.ranges[rangeId(id)] = ckRange{
 		id:      rangeId(id),
 		rf:      rf,
 		tags:    tags,
