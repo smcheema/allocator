@@ -98,7 +98,7 @@ func NewItems() Items {
 }
 
 // AddNode adds a node into the cluster collection.
-func (c Cluster) AddNode(id int64, nodeCapacity int64, tags ...string) {
+func (c *Cluster) AddNode(id int64, nodeCapacity int64, tags ...string) {
 	c.nodes[nodeId(id)] = &node{
 		id:        nodeId(id),
 		tags:      tags,
@@ -128,7 +128,7 @@ func (c Cluster) UpdateNodeCapacity(id int64, nodeCapacity int64) bool {
 
 // RemoveNode removes a given node from the cluster collection, returning true is the deletion is successful,
 // false if the nodeID does not map to any node.
-func (c Cluster) RemoveNode(id int64) bool {
+func (c *Cluster) RemoveNode(id int64) bool {
 	if _, found := c.nodes[nodeId(id)]; found {
 		delete(c.nodes, nodeId(id))
 		return true
@@ -137,7 +137,7 @@ func (c Cluster) RemoveNode(id int64) bool {
 }
 
 // AddRange adds a range into the items' collection.
-func (i Items) AddRange(id int64, rf int, diskDemand int64, q int64, tags ...string) {
+func (i *Items) AddRange(id int64, rf int, diskDemand int64, q int64, tags ...string) {
 	i.ranges[rangeId(id)] = &ckRange{
 		id:      rangeId(id),
 		rf:      rf,
@@ -148,7 +148,7 @@ func (i Items) AddRange(id int64, rf int, diskDemand int64, q int64, tags ...str
 
 // RemoveRange removes a given range from the items' collection, returning true is the deletion is successful,
 // false if the rangeID does not map to any range.
-func (i Items) RemoveRange(id int64) bool {
+func (i *Items) RemoveRange(id int64) bool {
 	if _, found := i.ranges[rangeId(id)]; found {
 		delete(i.ranges, rangeId(id))
 		return true
@@ -158,7 +158,7 @@ func (i Items) RemoveRange(id int64) bool {
 
 // UpdateRangeTags updates the tags for a range currently residing in the items' collection,
 // returning true for a successful update, false if the rangeID does not map to any range.
-func (i Items) UpdateRangeTags(id int64, tags ...string) bool {
+func (i *Items) UpdateRangeTags(id int64, tags ...string) bool {
 	if r, found := i.ranges[rangeId(id)]; found {
 		r.tags = tags
 		return true
@@ -168,7 +168,7 @@ func (i Items) UpdateRangeTags(id int64, tags ...string) bool {
 
 // UpdateRangeDiskDemand updates the disk-demand for a range currently residing in the items' collection,
 // returning true for a successful update, false if the rangeID does not map to any range.
-func (i Items) UpdateRangeDiskDemand(id rangeId, diskDemand int64) bool {
+func (i *Items) UpdateRangeDiskDemand(id rangeId, diskDemand int64) bool {
 	if r, found := i.ranges[id]; found {
 		r.demands[diskResource] = diskDemand
 		return true
@@ -178,7 +178,7 @@ func (i Items) UpdateRangeDiskDemand(id rangeId, diskDemand int64) bool {
 
 // UpdateRangeQps updates the qps for a range currently residing in the items' collection,
 // returning true for a successful update, false if the rangeID does not map to any range.
-func (i Items) UpdateRangeQps(id int64, q int64) bool {
+func (i *Items) UpdateRangeQps(id int64, q int64) bool {
 	if r, found := i.ranges[rangeId(id)]; found {
 		r.demands[qps] = q
 		return true
