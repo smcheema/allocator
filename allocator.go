@@ -3,6 +3,8 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
+	"log"
+	"strings"
 	"time"
 )
 
@@ -11,7 +13,9 @@ import (
 type Allocation map[int64][]int64
 
 const (
-	noMaxChurn = -1
+	noMaxChurn              = -1
+	defaultTimeout          = time.Second * 10
+	loggingPrefix           = ""
 )
 
 // allocOptions hold runtime allocation configurations.
@@ -24,6 +28,10 @@ type allocOptions struct {
 	withMinimalChurn bool
 	// maxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
 	maxChurn int64
+	// searchTimeout forces the solver to return within the specified duration.
+	searchTimeout time.Duration
+	// verboseLogging routes all the internal solver logs to stdout.
+	verboseLogging bool
 }
 
 // AllocOption manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -48,6 +56,7 @@ func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
 	defaultOptions := allocOptions{
 		// assume no maxChurn initially, let the allocOptions slice override if needed.
 		maxChurn: noMaxChurn,
+		searchTimeout: defaultTimeout,
 	}
 
 	for _, opt := range opts {
@@ -74,9 +83,9 @@ func (a Allocation) Print() {
 	}
 }
 
-// WithNodeCapacity is a closure that configures the allocator to adhere to capacity constraints and load-balance across
+// WithResources is a closure that configures the allocator to adhere to capacity constraints and load-balance across
 // resources.
-func WithNodeCapacity() AllocOption {
+func WithResources() AllocOption {
 	return func(opt *allocOptions) {
 		opt.withResources = true
 	}
@@ -107,7 +116,21 @@ func WithChurnMinimized() AllocOption {
 	}
 }
 
-func (a *allocator) adhereToNodeResources() {
+// WithTimeout is a closure that configures the allocator to conclude its search within the duration provided.
+func WithTimeout(searchTimeout time.Duration) AllocOption {
+	return func(opt *allocOptions) {
+		opt.searchTimeout = searchTimeout
+	}
+}
+
+// WithVerboseLogging is a closure that forces our solver to expose its logs to the caller for inspection.
+func WithVerboseLogging() AllocOption {
+	return func(opt *allocOptions) {
+		opt.verboseLogging = true
+	}
+}
+
+func (a *allocator) adhereToResourcesAndBalance() {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
@@ -240,7 +263,7 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 	}
 	// add constraints given opts/configurations.
 	if a.opts.withResources {
-		a.adhereToNodeResources()
+		a.adhereToResourcesAndBalance()
 	}
 
 	if a.opts.withTagAffinity {
@@ -260,9 +283,16 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 		fmt.Println(err)
 	}
 
-	// set a hard time limit of 10s on our solver.
-	result := a.model.Solve(solver.WithTimeout(time.Second * 10))
-	if result.Infeasible() || result.Invalid() {
+	var result solver.Result
+	if a.opts.verboseLogging {
+		var sb strings.Builder
+		result = a.model.Solve(solver.WithLogger(&sb, loggingPrefix), solver.WithTimeout(a.opts.searchTimeout))
+		log.Print(sb.String())
+	} else {
+		result = a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
+	}
+
+	if !(result.Feasible() || result.Optimal()) {
 		return false, nil
 	}
 

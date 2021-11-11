@@ -90,7 +90,7 @@ func TestCapacity(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
+	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -121,7 +121,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
+	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -154,7 +154,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
+	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -182,7 +182,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
+	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -339,7 +339,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		qpsDemands += i
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
+	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
 	require.True(t, status)
 	reasonableVariance := 0.2
 	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
