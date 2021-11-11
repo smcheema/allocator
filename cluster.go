@@ -87,8 +87,8 @@ func (cs *ClusterState) UpdateCurrentAssignment(priorAllocation Allocation) {
 	temp := make(map[replicaId][]nodeId)
 	for r, n := range priorAllocation {
 		temp[replicaId(r)] = make([]nodeId, len(n))
-		for nid := range n {
-			temp[replicaId(r)] = append(temp[replicaId(r)], nodeId(nid))
+		for i, nid := range n {
+			temp[replicaId(r)][i] = nodeId(nid)
 		}
 	}
 	cs.currentAssignment = temp
