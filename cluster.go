@@ -15,13 +15,11 @@ type ClusterState struct {
 }
 
 func NewClusterState() *ClusterState {
-	clusterState := &ClusterState{
+	return &ClusterState{
 		nodes:             make(map[nodeId]*node),
 		replicas:          make(map[replicaId]*replica),
 		currentAssignment: make(map[replicaId][]nodeId),
 	}
-
-	return clusterState
 }
 
 // AddReplica will add or overwrite the existing replica given an ID

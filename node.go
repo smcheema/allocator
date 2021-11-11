@@ -16,7 +16,7 @@ type node struct {
 func newNode(id nodeId) *node {
 	return &node{
 		id:        id,
-		resources: make(map[Resource]int64), // To avoid SegFault
+		resources: make(map[Resource]int64),
 	}
 }
 

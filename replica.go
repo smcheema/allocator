@@ -19,7 +19,7 @@ func newReplica(id replicaId, rf int) *replica {
 	return &replica{
 		id:      id,
 		rf:      rf,
-		demands: make(map[Resource]int64), // To avoid SegFault
+		demands: make(map[Resource]int64),
 	}
 }
 

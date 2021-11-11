@@ -49,7 +49,7 @@ type allocator struct {
 }
 
 // newAllocator builds, configures, and returns an allocator from the necessary parameters.
-// Note this allocator should not be reused carefully after solving a problem
+// Note this allocator should not be reused after solving a problem because the underlying solver is stateful
 func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
 	model := solver.NewModel("Lé-allocator")
 	assignment := make(map[replicaId][]solver.IntVar)
@@ -72,8 +72,7 @@ func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
 }
 
 func Solve(cs *ClusterState, opts ...AllocOption) (ok bool, allocation Allocation) {
-	allocator := newAllocator(cs, opts...)
-	return allocator.allocate()
+	return newAllocator(cs, opts...).allocate()
 }
 
 // Print is a utility method that pretty-prints allocation information.
