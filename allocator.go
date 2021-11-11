@@ -3,6 +3,8 @@ package allocator
 import (
 	"fmt"
 	"github.com/irfansharif/solver"
+	"log"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,7 @@ type Allocation map[int64][]int64
 const (
 	noMaxChurn              = -1
 	defaultTimeout          = time.Second * 10
+	loggingPrefix           = ""
 	diskResource   resource = iota
 	qps
 )
@@ -62,6 +65,8 @@ type options struct {
 	prevAssignment map[rangeId][]nodeId
 	// searchTimeout forces the solver to return within the specified duration.
 	searchTimeout time.Duration
+	// verboseLogging routes all the internal solver logs to stdout.
+	verboseLogging bool
 }
 
 // Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -269,6 +274,13 @@ func WithTimeout(searchTimeout time.Duration) Option {
 	}
 }
 
+// WithVerboseLogging is a closure that forces our solver to expose its logs to the caller for inspection.
+func WithVerboseLogging() Option {
+	return func(opt *options) {
+		opt.verboseLogging = true
+	}
+}
+
 func (a *Allocator) adhereToResourcesAndBalance() {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
@@ -423,8 +435,15 @@ func (a *Allocator) Allocate(cluster Cluster, items Items) (ok bool, allocation 
 		fmt.Println(err)
 	}
 
-	// set a hard time limit of 10s on our solver.
-	result := a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
+	var result solver.Result
+	if a.opts.verboseLogging {
+		var sb strings.Builder
+		result = a.model.Solve(solver.WithLogger(&sb, loggingPrefix), solver.WithTimeout(a.opts.searchTimeout))
+		log.Print(sb.String())
+	} else {
+		result = a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
+	}
+
 	if !(result.Feasible() || result.Optimal()) {
 		return false, nil
 	}
