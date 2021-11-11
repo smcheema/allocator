@@ -13,9 +13,9 @@ import (
 type Allocation map[int64][]int64
 
 const (
-	noMaxChurn              = -1
-	defaultTimeout          = time.Second * 10
-	loggingPrefix           = ""
+	noMaxChurn     = -1
+	defaultTimeout = time.Second * 10
+	loggingPrefix  = ""
 )
 
 // allocOptions hold runtime allocation configurations.
@@ -55,7 +55,7 @@ func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
 	assignment := make(map[replicaId][]solver.IntVar)
 	defaultOptions := allocOptions{
 		// assume no maxChurn initially, let the allocOptions slice override if needed.
-		maxChurn: noMaxChurn,
+		maxChurn:      noMaxChurn,
 		searchTimeout: defaultTimeout,
 	}
 
