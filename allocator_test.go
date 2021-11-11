@@ -8,18 +8,19 @@ import (
 
 // Premise : test replication by requiring replicas to be assigned to unique nodes.
 func TestReplication(t *testing.T) {
-	const numRanges = 20
+	const numReplicas = 20
 	const rf = 3
 	const numNodes = 64
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0)
+		clusterState.AddNode(int64(i))
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(int64(i), rf)
 	}
-	status, allocation := allocator.New().Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState)
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -31,55 +32,65 @@ func TestReplication(t *testing.T) {
 // Premise : test infeasible allocation by setting numNodes < rf. This is deemed infeasible since
 // we mandate implicitly replicas to live on separate nodes.
 func TestReplicationWithInsufficientNodes(t *testing.T) {
-	const numRanges = 20
+	const numReplicas = 20
 	const rf = 3
 	const numNodes = 1
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0)
+		clusterState.AddNode(int64(i))
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(int64(i), rf)
 	}
-	status, allocation := allocator.New().Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState)
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
 // Premise : Same as above.
 func TestReplicationWithInfeasibleRF(t *testing.T) {
-	const numRanges = 20
+	const numReplicas = 20
 	const rf = 128
 	const numNodes = 64
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0)
+		clusterState.AddNode(int64(i))
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(int64(i), rf)
 	}
-	status, allocation := allocator.New().Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState)
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
-// Premise : build space-aware nodes and ranges. Require all capacity constraints are respected.
+// Premise : build space-aware nodes and replicas. Require all capacity constraints are respected.
 func TestCapacity(t *testing.T) {
-	const numRanges = 20
+	const numReplicas = 20
 	const rf = 1
 	const numNodes = 8
 	const nodeCapacity = 10_000
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), nodeCapacity)
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, nodeCapacity),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, int64(i), 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithDemandOfReplica(allocator.DiskResource, int64(i)),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithNodeCapacity()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
@@ -89,72 +100,96 @@ func TestCapacity(t *testing.T) {
 
 // Premise : Same as above + replication.
 func TestCapacityTogetherWithReplication(t *testing.T) {
-	const numRanges = 5
+	const numReplicas = 5
 	const rf = 3
 	const numNodes = 3
 	clusterCapacities := []int64{90, 90, 90}
-	rangeSizeDemands := []int64{25, 10, 12, 11, 10}
-	nodes := allocator.NewCluster()
+	replicaSizeDemands := []int64{25, 10, 12, 11, 10}
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), clusterCapacities[i])
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, clusterCapacities[i]),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, rangeSizeDemands[i], 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithDemandOfReplica(allocator.DiskResource, replicaSizeDemands[i]),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithNodeCapacity()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
 	require.True(t, status)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
 		require.True(t, isEachReplicaAssignedToDifferentNode(nodeAssignments))
 	}
-	require.True(t, nodeCapacityIsRespected(allocation, clusterCapacities, rangeSizeDemands))
+	require.True(t, nodeCapacityIsRespected(allocation, clusterCapacities, replicaSizeDemands))
 }
 
 // Premise : test unhappy path and ensure RF is accounted inside capacity computations.
 func TestCapacityWithInfeasibleRF(t *testing.T) {
-	const numRanges = 5
+	const numReplicas = 5
 	const rf = 5
 	const numNodes = 3
 	clusterCapacities := []int64{90, 90, 90}
-	rangeSizeDemands := []int64{25, 10, 12, 11, 10}
-	nodes := allocator.NewCluster()
+	replicaSizeDemands := []int64{25, 10, 12, 11, 10}
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), clusterCapacities[i])
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, clusterCapacities[i]),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, rangeSizeDemands[i], 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithDemandOfReplica(allocator.DiskResource, replicaSizeDemands[i]),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithNodeCapacity()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
 // Premise : test unhappy path and ensure we are not allocating when impossible to do so.
 func TestCapacityWithInsufficientNodes(t *testing.T) {
-	const numRanges = 10
+	const numReplicas = 10
 	const rf = 1
 	const numNodes = 3
 	clusterCapacities := []int64{70, 70, 70}
-	rangeSizeDemands := [numRanges]int64{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
-	nodes := allocator.NewCluster()
+	replicaSizeDemands := [numReplicas]int64{85, 75, 12, 11, 10, 9, 8, 7, 6, 6}
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), clusterCapacities[i])
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, clusterCapacities[i]),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, rangeSizeDemands[i], 0)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithDemandOfReplica(allocator.DiskResource, replicaSizeDemands[i]),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithNodeCapacity()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
-// Premise : check tag affinity works on small cluster and range-set.
+// Premise : check tag affinity works on small cluster and replica-set.
 func TestTagsWithViableNodes(t *testing.T) {
-	const numRanges = 3
+	const numReplicas = 3
 	const rf = 1
 	const numNodes = 3
 	nodeTags := [][]string{
@@ -162,45 +197,61 @@ func TestTagsWithViableNodes(t *testing.T) {
 		{"a=all", "b=bus", "e=eat", "f=fun"},
 		{"a=art", "b=bin", "e=ear", "f=fur"},
 	}
-	rangeTags := [][]string{
+	replicaTags := [][]string{
 		{"a=art"},
 		{"e=eat"},
 		{"a=ant", "b=bus"},
 	}
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0, nodeTags[i]...)
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithTagsOfNode(nodeTags[i]...),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0, rangeTags[i]...)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithTagsOfReplica(replicaTags[i]...),
+		)
 	}
+
 	expectedAllocation := allocator.Allocation{
 		0: {2},
 		1: {1},
 		2: {0},
 	}
-	status, allocation := allocator.New(allocator.WithTagMatching()).Allocate(nodes, ranges)
+	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
 	require.True(t, status)
 	require.Equal(t, expectedAllocation, allocation)
 }
 
 // Premise : validate failure upon orthogonal tag sets.
 func TestTagsWithNonviableNodes(t *testing.T) {
-	const numRanges = 1
+	const numReplicas = 1
 	const rf = 1
 	const numNodes = 1
 	nodeTags := [][]string{{"tag=A"}}
-	rangeTags := [][]string{{"tag=B"}}
-	nodes := allocator.NewCluster()
+	replicaTags := [][]string{{"tag=B"}}
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0, nodeTags[i]...)
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithTagsOfNode(nodeTags[i]...),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0, rangeTags[i]...)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithTagsOfReplica(replicaTags[i]...),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithTagMatching()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
@@ -208,7 +259,7 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 // Premise : allocate once, force allocator to modify prior allocation due to modified tags, ensure impossible to do
 // so due to low maxChurn limit.
 func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
-	const numRanges = 3
+	const numReplicas = 3
 	const rf = 3
 	const numNodes = 6
 	nodeTags := [][]string{
@@ -219,53 +270,76 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 		{"tag=A"},
 		{"tag=A"},
 	}
-	rangeTags := [][]string{
+	replicaTags := [][]string{
 		{"tag=A"},
 		{"tag=A"},
 		{"tag=A"},
 	}
-	nodes := allocator.NewCluster()
+
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), 0, nodeTags[i]...)
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithTagsOfNode(nodeTags[i]...),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, 0, 0, rangeTags[i]...)
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithTagsOfReplica(replicaTags[i]...),
+		)
 	}
-	status, allocation := allocator.New(allocator.WithTagMatching()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
 	require.True(t, status)
+
+	clusterState.UpdateCurrentAssignment(allocation)
 
 	const maxChurn = 1
 	for index := 1; index < numNodes; index++ {
-		nodes.UpdateNodeTags(int64(index))
+		clusterState.UpdateNode(int64(index), allocator.RemoveAllTagsOfNode())
 	}
 
-	status, allocation = allocator.New(allocator.WithTagMatching(), allocator.WithChurnMinimized(), allocator.WithMaxChurn(maxChurn), allocator.WithPriorAssignment(allocation)).Allocate(nodes, ranges)
+	status, allocation = allocator.Solve(
+		clusterState,
+		allocator.WithTagMatching(),
+		allocator.WithChurnMinimized(),
+		allocator.WithMaxChurn(maxChurn),
+	)
 	require.False(t, status)
 	require.Nil(t, allocation)
 }
 
-// Premise : define ranges/nodes with respective demands/resources and ensure the load spread
+// Premise : define replicas/nodes with respective demands/resources and ensure the load spread
 // across resources is within some interval. In this case -> [ideal distribution * 0.8, ideal distribution * 1.2] (20% variance from ideal).
 func TestQPSandDiskBalancing(t *testing.T) {
-	const numRanges = 12
+	const numReplicas = 12
 	const rf = 1
 	const numNodes = 6
 	const nodeCapacity = 10_000
 	sizeDemands := 0
 	qpsDemands := 0
 
-	nodes := allocator.NewCluster()
+	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
-		nodes.AddNode(int64(i), nodeCapacity)
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, nodeCapacity),
+		)
 	}
-	ranges := allocator.NewItems()
-	for i := 0; i < numRanges; i++ {
-		ranges.AddRange(int64(i), rf, int64(i), int64(i))
+	for i := 0; i < numReplicas; i++ {
+		clusterState.AddReplica(
+			int64(i),
+			rf,
+			allocator.WithDemandOfReplica(allocator.DiskResource, int64(i)),
+			allocator.WithDemandOfReplica(allocator.QPS, int64(i)),
+		)
 		sizeDemands += i
 		qpsDemands += i
 	}
-	status, allocation := allocator.New(allocator.WithNodeCapacity()).Allocate(nodes, ranges)
+
+	status, allocation := allocator.Solve(clusterState, allocator.WithNodeCapacity())
 	require.True(t, status)
 	reasonableVariance := 0.2
 	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
@@ -305,11 +379,11 @@ func isEachReplicaAssignedToDifferentNode(nodeIDs []int64) bool {
 	return true
 }
 
-func nodeCapacityIsRespected(allocation map[int64][]int64, nodeCapacities []int64, rangeDemands []int64) bool {
+func nodeCapacityIsRespected(allocation map[int64][]int64, nodeCapacities []int64, replicaDemands []int64) bool {
 	inUseCapacity := make(map[int64]int64)
-	for rangeID, nodeAssignments := range allocation {
+	for replicaID, nodeAssignments := range allocation {
 		for _, node := range nodeAssignments {
-			inUseCapacity[node] += rangeDemands[rangeID]
+			inUseCapacity[node] += replicaDemands[replicaID]
 		}
 	}
 	for nodeId, nodeCapacityConsumed := range inUseCapacity {
