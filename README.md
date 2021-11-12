@@ -1,5 +1,7 @@
 Allocator
 ---
+[![Go Reference](https://pkg.go.dev/badge/github.com/smcheema/allocator.svg)](https://godocs.io/github.com/smcheema/allocator)
+
 
 ### Contributing
 
