@@ -9,7 +9,7 @@ gazelle(
 
 go_library(
     name = "allocator",
-    srcs = ["allocator.go", "cluster.go", "node.go", "replica.go"],
+    srcs = ["allocator.go","allocOptions.go", "cluster.go", "node.go", "replica.go"],
     importpath = "github.com/smcheema/allocator",
     visibility = ["//visibility:public"],
     deps = ["@com_github_irfansharif_solver//:solver"],
