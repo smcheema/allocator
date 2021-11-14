@@ -10,6 +10,10 @@ type replica struct {
 	// rf equals the replication factor of said replica.
 	rf int
 	// tags are strings that showcase affinity for replicas.
+	// note: we key the following map using the tag,
+	// and assign an empty struct as the corresponding value,
+	// since we only care about tag membership,
+	// and not values assigned to said tag per se.
 	tags map[string]struct{}
 	// demands model the Resource requirements of said replica.
 	demands map[Resource]int64
@@ -47,6 +51,7 @@ func WithTagsOfReplica(tags ...string) ReplicaOption {
 func AddTagsToReplica(tags ...string) ReplicaOption {
 	return func(modifiedReplica *replica) {
 		for _, tag := range tags {
+			// build empty struct, really a placeholder value to satisfy map semantics
 			modifiedReplica.tags[tag] = struct{}{}
 		}
 	}
