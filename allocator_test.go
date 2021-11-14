@@ -46,7 +46,7 @@ func TestReplicationWithInsufficientNodes(t *testing.T) {
 
 	allocation, err := allocator.Solve(clusterState)
 	require.NotNil(t, err)
-	require.IsType(t, allocator.RfGreaterThanClusterSizeError(0), err)
+	require.IsType(t, allocator.RfGreaterThanClusterSizeError([]int64{}), err)
 	require.Nil(t, allocation)
 }
 
@@ -66,7 +66,7 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 
 	allocation, err := allocator.Solve(clusterState)
 	require.NotNil(t, err)
-	require.IsType(t, allocator.RfGreaterThanClusterSizeError(0), err)
+	require.IsType(t, allocator.RfGreaterThanClusterSizeError([]int64{}), err)
 	require.Nil(t, allocation)
 }
 
@@ -158,7 +158,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 
 	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
 	require.NotNil(t, err)
-	require.IsType(t, allocator.RfGreaterThanClusterSizeError(0), err)
+	require.IsType(t, allocator.RfGreaterThanClusterSizeError([]int64{}), err)
 	require.Nil(t, allocation)
 }
 
@@ -257,7 +257,7 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 
 	allocation, err := allocator.Solve(clusterState, allocator.WithTagMatching())
 	require.NotNil(t, err)
-	require.IsType(t, allocator.RangeWithWaywardTagsError(0), err)
+	require.IsType(t, allocator.RangesWithWaywardTagsError([]int64{}), err)
 	require.Nil(t, allocation)
 }
 

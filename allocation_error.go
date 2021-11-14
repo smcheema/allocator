@@ -3,13 +3,15 @@ package allocator
 import "fmt"
 
 // RfGreaterThanClusterSizeError signifies an allocation error due to an insufficient node count for allocating replicas onto different nodes.
-type RfGreaterThanClusterSizeError int64
+// the error encapsulates the culprit rangeId's
+type RfGreaterThanClusterSizeError []int64
 
 // InsufficientClusterCapacityError indicates that the sum of range demands exceeds the sum of node capacities.
 type InsufficientClusterCapacityError struct{}
 
-// RangeWithWaywardTagsError indicates that there exists at-least one range whose tags are not held by any node.
-type RangeWithWaywardTagsError int64
+// RangesWithWaywardTagsError indicates that there exists at-least one range whose tags are not held by any node.
+// the error encapsulates the culprit rangeId's
+type RangesWithWaywardTagsError []int64
 
 // InvalidModelError indicates that the model built is conflicting and not possible to solve.
 type InvalidModelError struct{}
@@ -25,7 +27,7 @@ func (e InsufficientClusterCapacityError) Error() string {
 	return "sum of range demands exceed sum of node resources available"
 }
 
-func (e RangeWithWaywardTagsError) Error() string {
+func (e RangesWithWaywardTagsError) Error() string {
 	return fmt.Sprintf("range with rangeId:%d holds tags that are not present on any node", e)
 }
 

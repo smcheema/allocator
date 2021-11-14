@@ -113,6 +113,7 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 }
 
 func (a *allocator) adhereToNodeTags() error {
+	rangeIdsWithWaywardTags := make([]int64, 0)
 	for rID, r := range a.replicas {
 		forbiddenAssignments := make([][]int64, 0)
 		// for each replica-node pair, if incompatible, force the allocator to write-off said allocation.
@@ -125,13 +126,16 @@ func (a *allocator) adhereToNodeTags() error {
 			}
 		}
 		if !foundAtLeastOneDestNode {
-			return RangeWithWaywardTagsError(rID)
+			rangeIdsWithWaywardTags = append(rangeIdsWithWaywardTags, int64(rID))
 		}
 		for i := 0; i < r.rf; i++ {
 			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
 				[]solver.IntVar{a.assignment[rID][i]}, forbiddenAssignments,
 			))
 		}
+	}
+	if len(rangeIdsWithWaywardTags) > 0 {
+		return RangesWithWaywardTagsError(rangeIdsWithWaywardTags)
 	}
 	return nil
 }
@@ -189,9 +193,10 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 
 	// iterate over replicas, assign each replicaID a list of IV's sized r.rf.
 	// These will ultimately then read as: replicaID's replicas assigned to nodes [N.1, N.2,...N.RF]
+	rangeIdsWithInfeasibleRF := make([]int64, 0)
 	for _, r := range a.replicas {
 		if r.rf > len(a.nodes) {
-			return nil, RfGreaterThanClusterSizeError(r.id)
+			rangeIdsWithInfeasibleRF = append(rangeIdsWithInfeasibleRF, int64(r.id))
 		}
 		a.assignment[r.id] = make([]solver.IntVar, r.rf)
 		for j := range a.assignment[r.id] {
@@ -201,6 +206,9 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[r.id]...))
+	}
+	if len(rangeIdsWithInfeasibleRF) > 0 {
+		return nil, RfGreaterThanClusterSizeError(rangeIdsWithInfeasibleRF)
 	}
 	// add constraints given opts/configurations.
 	if a.opts.withResources {
