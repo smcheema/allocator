@@ -24,6 +24,11 @@ func NewClusterState() *ClusterState {
 
 // AddReplica will add or overwrite the existing replica given an ID
 func (cs *ClusterState) AddReplica(id int64, rf int, opts ...ReplicaOption) {
+	if id < 0 {
+		panic("range id cannot be negative")
+	} else if rf < 0 {
+		panic("range rf cannot be negative")
+	}
 	newReplica := newReplica(replicaId(id), rf)
 	for _, opt := range opts {
 		opt(newReplica)
@@ -53,6 +58,9 @@ func (cs *ClusterState) UpdateReplica(id int64, opts ...ReplicaOption) bool {
 
 // AddNode will add or overwrite the existing node given an ID
 func (cs *ClusterState) AddNode(id int64, opts ...NodeOption) {
+	if id < 0 {
+		panic("node id cannot be negative")
+	}
 	newNode := newNode(nodeId(id))
 	for _, opt := range opts {
 		opt(newNode)

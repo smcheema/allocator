@@ -56,6 +56,9 @@ func RemoveAllTagsOfNode() NodeOption {
 
 // WithResourceOfNode will add or overwrite the amount of a target Resource the node provides
 func WithResourceOfNode(targetResource Resource, resourceAmount int64) NodeOption {
+	if resourceAmount < 0 {
+		panic("resourceAmount cannot be negative")
+	}
 	return func(modifiedNode *node) {
 		modifiedNode.resources[targetResource] = resourceAmount
 	}

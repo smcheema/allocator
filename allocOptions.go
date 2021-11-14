@@ -2,7 +2,6 @@ package allocator
 
 import "time"
 
-//allocOptions Constants
 const (
 	noMaxChurn     = -1
 	defaultTimeout = time.Second * 10
@@ -48,7 +47,7 @@ func WithTagMatching() AllocOption {
 func WithMaxChurn(maxChurn int64) AllocOption {
 	return func(opt *allocOptions) {
 		if maxChurn < 0 {
-			panic("max-churn must be greater than or equal to 0")
+			panic("maxChurn cannot be negative")
 		}
 		opt.maxChurn = maxChurn
 	}
@@ -63,6 +62,9 @@ func WithChurnMinimized() AllocOption {
 
 // WithTimeout is a closure that configures the allocator to conclude its search within the duration provided.
 func WithTimeout(searchTimeout time.Duration) AllocOption {
+	if searchTimeout < 0 {
+		panic("searchTimeout cannot be negative")
+	}
 	return func(opt *allocOptions) {
 		opt.searchTimeout = searchTimeout
 	}

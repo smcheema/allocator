@@ -66,6 +66,9 @@ func RemoveAllTagsOfReplica() ReplicaOption {
 
 // WithDemandOfReplica will add or overwrite the amount of a target Resource the replica demands
 func WithDemandOfReplica(targetResource Resource, demandAmount int64) ReplicaOption {
+	if demandAmount < 0 {
+		panic("resourceAmount cannot be negative")
+	}
 	return func(modifiedReplica *replica) {
 		modifiedReplica.demands[targetResource] = demandAmount
 	}
