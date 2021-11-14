@@ -13,6 +13,7 @@ type Allocation map[int64][]int64
 
 // allocator holds the replicas, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type allocator struct {
+	// ClusterState anonymous type that holds our ranges and nodes metadata.
 	*ClusterState
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
@@ -119,16 +120,9 @@ func (a *allocator) adhereToNodeTags() {
 }
 
 // replicaTagsAreSubsetOfNodeTags returns true iff a replica's tags are a subset of a node's tags
-func replicaTagsAreSubsetOfNodeTags(replicaTags []string, nodeTags []string) bool {
-	for _, replicaTag := range replicaTags {
-		foundMatch := false
-		for _, nodeTag := range nodeTags {
-			if replicaTag == nodeTag {
-				foundMatch = true
-				break
-			}
-		}
-		if !foundMatch {
+func replicaTagsAreSubsetOfNodeTags(replicaTags map[string]struct{}, nodeTags map[string]struct{}) bool {
+	for replicaTag := range replicaTags {
+		if _, found := nodeTags[replicaTag]; !found {
 			return false
 		}
 	}
