@@ -44,7 +44,6 @@ func WithTagsOfReplica(tags ...string) ReplicaOption {
 }
 
 // AddTagsToReplica add tags to a replica
-// Note it does not check for uniqueness, perhaps we should change tags to a unique set instead of a slice
 func AddTagsToReplica(tags ...string) ReplicaOption {
 	return func(modifiedReplica *replica) {
 		for _, tag := range tags {

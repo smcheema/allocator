@@ -34,7 +34,6 @@ func WithTagsOfNode(tags ...string) NodeOption {
 }
 
 // AddTagsToNode add tags to a node
-// Note it does not check for uniqueness, perhaps we should change tags to a unique set instead of a slice
 func AddTagsToNode(tags ...string) NodeOption {
 	return func(modifiedNode *node) {
 		for _, tag := range tags {
