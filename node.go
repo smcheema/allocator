@@ -8,9 +8,9 @@ type node struct {
 	// id represents a unique identifier.
 	id nodeId
 	// tags are strings that showcase affinity for replicas.
-	// note: we key the following map using the tag,
-	// and assign an empty struct as the corresponding value,
-	// since we only care about tag membership,
+	// note: we key the following map using the tag
+	// and assign an empty struct as the corresponding value
+	// since we only care about tag membership
 	// and not values assigned to said tag per se.
 	tags map[string]struct{}
 	// resources model the Resource profile of said node.
