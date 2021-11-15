@@ -68,7 +68,7 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		rawCapacity := int64(0)
 		rawDemand := int64(0)
 		for _, r := range a.replicas {
-			rawDemand += r.demands[re]
+			rawDemand += r.demands[re] * int64(r.rf)
 		}
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
