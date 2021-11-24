@@ -79,7 +79,7 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		}
 
 		if rawCapacity*int64(len(a.nodes)) < rawDemand {
-			return InsufficientClusterCapacityError{}
+			return fmt.Errorf("sum of range demands exceed sum of node resources available")
 		}
 		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
 		tasks := make([]solver.Interval, 0)
@@ -135,7 +135,7 @@ func (a *allocator) adhereToNodeTags() error {
 		}
 	}
 	if len(rangeIdsWithWaywardTags) > 0 {
-		return RangesWithWaywardTagsError(rangeIdsWithWaywardTags)
+		return fmt.Errorf("tags that are absent on all nodes found on ranges with rangeId:%d ", rangeIdsWithWaywardTags)
 	}
 	return nil
 }
@@ -208,7 +208,7 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[r.id]...))
 	}
 	if len(rangeIdsWithInfeasibleRF) > 0 {
-		return nil, RfGreaterThanClusterSizeError(rangeIdsWithInfeasibleRF)
+		return nil, fmt.Errorf("rf passed in greater than cluster size for rangeId: %d", rangeIdsWithInfeasibleRF)
 	}
 	// add constraints given opts/configurations.
 	if a.opts.withResources {
@@ -230,7 +230,7 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 	ok, err := a.model.Validate()
 	if !ok {
 		log.Println("invalid model built: ", err)
-		return nil, InvalidModelError{}
+		return nil, fmt.Errorf("invalid model generated, inspect logs for further insights")
 	}
 
 	var result solver.Result
@@ -243,7 +243,7 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 	}
 
 	if !(result.Feasible() || result.Optimal()) {
-		return nil, CouldNotSolveError{}
+		return nil, fmt.Errorf("allocation failed, most likely due to a timeout or an infeasible model, use VerboseLogging to debug")
 	}
 
 	res := make(Allocation)
