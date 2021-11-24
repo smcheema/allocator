@@ -116,16 +116,12 @@ func (a *allocator) adhereToNodeTags() error {
 	rangeIdsWithWaywardTags := make([]int64, 0)
 	for rID, r := range a.replicas {
 		forbiddenAssignments := make([][]int64, 0)
-		// for each replica-node pair, if incompatible, force the allocator to write-off said allocation.
-		foundAtLeastOneDestNode := false
 		for nID, n := range a.nodes {
 			if !replicaTagsAreSubsetOfNodeTags(r.tags, n.tags) {
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nID)})
-			} else {
-				foundAtLeastOneDestNode = true
 			}
 		}
-		if !foundAtLeastOneDestNode {
+		if len(forbiddenAssignments) == len(a.nodes) {
 			rangeIdsWithWaywardTags = append(rangeIdsWithWaywardTags, int64(rID))
 		}
 		for i := 0; i < r.rf; i++ {
