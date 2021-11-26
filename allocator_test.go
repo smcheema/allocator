@@ -1,9 +1,9 @@
 package allocator_test
 
 import (
-	"fmt"
 	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
+	"log"
 	"strconv"
 	"testing"
 	"time"
@@ -405,7 +405,9 @@ func replicateAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
 		status, _ = allocator.Solve(clusterState, allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
-	fmt.Println(result)
+	if !result {
+		log.Print("benchmark allocation returned false, sus")
+	}
 }
 
 func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -426,7 +428,9 @@ func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *te
 		status, _ = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
-	fmt.Println(result)
+	if !result {
+		log.Print("benchmark allocation returned false, sus")
+	}
 }
 
 func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -445,7 +449,9 @@ func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing
 		status, _ = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
-	fmt.Println(result)
+	if !result {
+		log.Print("benchmark allocation returned false, sus")
+	}
 }
 
 func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -464,7 +470,9 @@ func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *tes
 		status, _ = allocator.Solve(clusterState, allocator.WithTagMatching(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
-	fmt.Println(result)
+	if !result {
+		log.Print("benchmark allocation returned false, sus")
+	}
 }
 
 func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B) {
@@ -496,7 +504,9 @@ func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B)
 			allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
-	fmt.Println(result)
+	if !result {
+		log.Print("benchmark allocation returned false, sus")
+	}
 }
 
 func validateRf(rf int, numNodes int) {
