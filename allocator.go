@@ -8,7 +8,7 @@ import (
 )
 
 // Allocation is the return type of our allocator.
-// It models mappings of ShardIds to a list of NodeIds.
+// It models mappings of shardIds to a list of nodeIds.
 type Allocation map[int64][]int64
 
 // allocator holds the shards, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
