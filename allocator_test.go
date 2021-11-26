@@ -3,8 +3,15 @@ package allocator_test
 import (
 	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
+	"log"
+	"strconv"
 	"testing"
+	"time"
 )
+
+const benchmarkTimeout = time.Minute * 5
+
+var result error
 
 // Premise : test replication by requiring shards to be assigned to unique nodes.
 func TestReplication(t *testing.T) {
@@ -348,13 +355,168 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
 	}
 	nodeConsumption := make(map[int64]int64)
-	for rId, nodeAssignments := range allocation {
+	for sId, nodeAssignments := range allocation {
 		for _, nId := range nodeAssignments {
-			nodeConsumption[nId] += 2 * int64(rId)
+			nodeConsumption[nId] += 2 * int64(sId)
 		}
 	}
 	for _, consumption := range nodeConsumption {
 		require.True(t, (float64(consumption) >= (1-reasonableVariance)*idealSizeAllocation) && (float64(consumption) <= (1+reasonableVariance)*idealSizeAllocation))
+	}
+}
+
+// Benchmark names are suffixed with _rRF_nN_sS --> reads as: this benchmark is run with RF = f, numNodes = n, numShard = s.
+// Premise : benchmark performance of replication only.
+func BenchmarkReplication_1RF_10N_100S(b *testing.B)    { replicateAndAllocate(1, 10, 100, b) }
+func BenchmarkReplication_1RF_100N_100S(b *testing.B)   { replicateAndAllocate(1, 100, 100, b) }
+func BenchmarkReplication_1RF_100N_1000S(b *testing.B)  { replicateAndAllocate(1, 100, 1000, b) }
+func BenchmarkReplication_1RF_1000N_1000S(b *testing.B) { replicateAndAllocate(1, 1000, 1000, b) }
+
+// Premise : benchmark performance of the disk-resource and replication.
+func BenchmarkCapacity_1RF_10N_100S(b *testing.B)  { replicateWithCapacityAndAllocate(1, 10, 100, b) }
+func BenchmarkCapacity_1RF_100N_100S(b *testing.B) { replicateWithCapacityAndAllocate(1, 100, 100, b) }
+func BenchmarkCapacity_1RF_100N_1000S(b *testing.B) {
+	replicateWithCapacityAndAllocate(1, 100, 1000, b)
+}
+func BenchmarkCapacity_1RF_1000N_1000S(b *testing.B) {
+	replicateWithCapacityAndAllocate(1, 1000, 1000, b)
+}
+
+// Premise : benchmark performance of the qps-resource and replication.
+// this method is separate from the disk-resource benchmark due to extremely different
+// benchmark performance.
+func BenchmarkQps_1RF_1N_10S(b *testing.B) { replicateWithQpsAndAllocate(1, 1, 10, b) }
+
+// Premise : benchmark performance of tagging and replication.
+func BenchmarkTagging_1RF_10N_100S(b *testing.B)  { replicateWithTaggingAndAllocate(1, 10, 100, b) }
+func BenchmarkTagging_1RF_100N_100S(b *testing.B) { replicateWithTaggingAndAllocate(1, 100, 100, b) }
+
+// Premise : benchmark performance of churn, for simplicity we currently set rf = 1.
+func BenchmarkChurn_10N_100S(b *testing.B)   { replicateWithMaxChurnAndAllocate(10, 100, b) }
+func BenchmarkChurn_100N_100S(b *testing.B)  { replicateWithMaxChurnAndAllocate(100, 100, b) }
+func BenchmarkChurn_100N_1000S(b *testing.B) { replicateWithMaxChurnAndAllocate(100, 1000, b) }
+
+func replicateAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
+	validateRf(rf, numNodes)
+	var err error
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(int64(i))
+	}
+	for i := 0; i < numRanges; i++ {
+		clusterState.AddShard(int64(i), rf)
+	}
+	for n := 0; n < b.N; n++ {
+		_, err = allocator.Solve(clusterState, allocator.WithTimeout(benchmarkTimeout))
+	}
+	result = err
+	if result != nil {
+		log.Print(result)
+	}
+}
+
+func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
+	validateRf(rf, numNodes)
+	var err error
+	nodeCapacity := 10000
+	shardDemand := 300
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, int64(nodeCapacity)))
+	}
+	for i := 0; i < numRanges; i++ {
+		clusterState.AddShard(int64(i), rf)
+		allocator.WithDemandOfShard(allocator.DiskResource, int64(shardDemand))
+	}
+	for n := 0; n < b.N; n++ {
+		_, err = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
+	}
+	result = err
+	if result != nil {
+		log.Print(result)
+	}
+}
+
+func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
+	validateRf(rf, numNodes)
+	var err error
+	shardQps := 300
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(int64(i))
+	}
+	for i := 0; i < numRanges; i++ {
+		clusterState.AddShard(int64(i), rf,
+			allocator.WithDemandOfShard(allocator.QPS, int64(shardQps)))
+	}
+	for n := 0; n < b.N; n++ {
+		_, err = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
+	}
+	result = err
+	if result != nil {
+		log.Print(result)
+	}
+}
+
+func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
+	validateRf(rf, numNodes)
+	var err error
+	// affineCount signifies the number of nodes that are affine to each shard.
+	affineCount := 2
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(int64(i), allocator.WithTagsOfNode(strconv.Itoa(i%affineCount)))
+	}
+	for i := 0; i < numRanges; i++ {
+		clusterState.AddShard(int64(i), rf, allocator.WithTagsOfShard(strconv.Itoa(i%affineCount)))
+	}
+	for n := 0; n < b.N; n++ {
+		_, err = allocator.Solve(clusterState, allocator.WithTagMatching(), allocator.WithTimeout(benchmarkTimeout))
+	}
+	result = err
+	if result != nil {
+		log.Print(result)
+	}
+}
+
+func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B) {
+	const maxChurn = 2
+	const rf = 1
+	var err error
+	previousAllocation := make(allocator.Allocation)
+	for r := 0; r < numRanges; r++ {
+		previousAllocation[int64(r)] = append(previousAllocation[int64(r)], int64(r%numNodes))
+	}
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(int64(i))
+	}
+	for i := 0; i < numRanges; i++ {
+		clusterState.AddShard(int64(i), rf)
+	}
+	// force shard with id == 0 and shard with id == 1 to swap nodes.
+	clusterState.UpdateShard(int64(0), allocator.WithTagsOfShard("x"))
+	clusterState.UpdateShard(int64(1), allocator.WithTagsOfShard("y"))
+	clusterState.UpdateNode(int64(0), allocator.WithTagsOfNode("y"))
+	clusterState.UpdateNode(int64(1), allocator.WithTagsOfNode("x"))
+	clusterState.UpdateCurrentAssignment(previousAllocation)
+	for n := 0; n < b.N; n++ {
+		_, err = allocator.Solve(clusterState,
+			allocator.WithMaxChurn(maxChurn),
+			allocator.WithChurnMinimized(),
+			allocator.WithTagMatching(),
+			allocator.WithTimeout(benchmarkTimeout))
+	}
+	result = err
+	if result != nil {
+		log.Print(result)
+	}
+}
+
+func validateRf(rf int, numNodes int) {
+	if rf > numNodes {
+		panic("rf greater than numNodes, i must panic")
 	}
 }
 

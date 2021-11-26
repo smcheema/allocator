@@ -66,8 +66,8 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 	for _, re := range []Resource{DiskResource, QPS} {
 		rawCapacity := int64(0)
 		rawDemand := int64(0)
-		for _, r := range a.shards {
-			rawDemand += r.demands[re] * int64(r.rf)
+		for _, s := range a.shards {
+			rawDemand += s.demands[re] * int64(s.rf)
 		}
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
@@ -78,26 +78,26 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		}
 
 		if rawCapacity*int64(len(a.nodes)) < rawDemand {
-			return fmt.Errorf("sum of range demands exceed sum of node resources available")
+			return fmt.Errorf("sum of shard demands exceed sum of node resources available")
 		}
 		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
 		tasks := make([]solver.Interval, 0)
 		// demands represent the resource requirements placed on each node by potential matches to a shard.
 		demands := make([]solver.IntVar, 0)
-		for rId, nIds := range a.assignment {
+		for sId, nIds := range a.assignment {
 			for i, id := range nIds {
 				// go over shardIds and their respective ivs.
 				// for that specific shard, tell the allocator "regardless of where you place this shard, you will
-				// pay a cost of r.resource[re]". What we're asking the allocator to do is then arrange the intervals
+				// pay a cost of s.resource[re]". What we're asking the allocator to do is then arrange the intervals
 				// in a fashion that does not violate our capacity requirements.
 				toAdd := a.model.NewInterval(
 					id,
 					a.model.NewIntVarFromDomain(solver.NewDomain(1, int64(len(a.nodes))), "Adjusted intervals for upper bounds."),
 					fixedSizedOneOffset,
-					fmt.Sprintf("Interval representing demands placed on node by shard: %d, shard: %d", rId, i),
+					fmt.Sprintf("Interval representing demands placed on node by shard: %d, shard: %d", sId, i),
 				)
 				tasks = append(tasks, toAdd)
-				demands = append(demands, a.model.NewConstant(a.shards[rId].demands[re], fmt.Sprintf("Demand for r.id:%d.", rId)))
+				demands = append(demands, a.model.NewConstant(a.shards[sId].demands[re], fmt.Sprintf("Demand for s.id:%d.", sId)))
 			}
 		}
 		// set ceiling for interval interleaving.
@@ -112,26 +112,26 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 }
 
 func (a *allocator) adhereToNodeTags() error {
-	rangeIdsWithWaywardTags := make([]int64, 0)
-	for rId, r := range a.shards {
+	shardIdsWithWaywardTags := make([]int64, 0)
+	for sId, s := range a.shards {
 		forbiddenAssignments := make([][]int64, 0)
 		// for each shard-node pair, if incompatible, force the allocator to write-off said allocation.
 		for nId, n := range a.nodes {
-			if !shardTagsAreSubsetOfNodeTags(r.tags, n.tags) {
+			if !shardTagsAreSubsetOfNodeTags(s.tags, n.tags) {
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nId)})
 			}
 		}
 		if len(forbiddenAssignments) == len(a.nodes) {
-			rangeIdsWithWaywardTags = append(rangeIdsWithWaywardTags, int64(rId))
+			shardIdsWithWaywardTags = append(shardIdsWithWaywardTags, int64(sId))
 		}
-		for i := 0; i < r.rf; i++ {
+		for i := 0; i < s.rf; i++ {
 			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
-				[]solver.IntVar{a.assignment[rId][i]}, forbiddenAssignments,
+				[]solver.IntVar{a.assignment[sId][i]}, forbiddenAssignments,
 			))
 		}
 	}
-	if len(rangeIdsWithWaywardTags) > 0 {
-		return fmt.Errorf("tags that are absent on all nodes found on ranges with rangeId:%d ", rangeIdsWithWaywardTags)
+	if len(shardIdsWithWaywardTags) > 0 {
+		return fmt.Errorf("tags that are absent on all nodes found on shard with shardId:%d ", shardIdsWithWaywardTags)
 	}
 	return nil
 }
@@ -153,16 +153,16 @@ func (a *allocator) adhereToChurnConstraint() {
 	toMinimizeTheSumLiterals := make([]solver.Literal, 0)
 	fixedDomain := solver.NewDomain(0, 0)
 
-	for _, r := range a.shards {
+	for _, s := range a.shards {
 		// go over shards, if a shard was previously assigned to some node, attempt to keep that assignment as long as
 		// said node still exists in the cluster.
-		if prevNodeIds, ok := a.currentAssignment[r.id]; ok {
-			for i, iv := range a.assignment[r.id] {
+		if prevNodeIds, ok := a.currentAssignment[s.id]; ok {
+			for i, iv := range a.assignment[s.id] {
 				if _, ok := a.nodes[prevNodeIds[i]]; ok {
-					newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of shard:%d, shard:%d on node:%d", r.id, i, prevNodeIds[i]))
+					newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of shard:%d, shard:%d on node:%d", s.id, i, prevNodeIds[i]))
 					a.model.AddConstraints(
 						solver.NewLinearConstraint(
-							solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIds[i]), fmt.Sprintf("IntVar corresponding to assignment of shard:%d, shard:%d on node:%d", r.id, i, prevNodeIds[i]))},
+							solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIds[i]), fmt.Sprintf("IntVar corresponding to assignment of shard:%d, shard:%d on node:%d", s.id, i, prevNodeIds[i]))},
 								[]int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
 					toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
 				}
@@ -187,24 +187,24 @@ func (a *allocator) adhereToChurnConstraint() {
 // The status could be false if the existing model is invalid or unsatisfiable.
 func (a *allocator) allocate() (allocation Allocation, err error) {
 
-	// iterate over shards, assign each shardId a list of IV's sized r.rf.
+	// iterate over shards, assign each shardId a list of IV's sized s.rf.
 	// These will ultimately then read as: shardId's shards assigned to nodes [N.1, N.2,...N.RF]
-	rangeIdsWithInfeasibleRF := make([]int64, 0)
-	for _, r := range a.shards {
-		if r.rf > len(a.nodes) {
-			rangeIdsWithInfeasibleRF = append(rangeIdsWithInfeasibleRF, int64(r.id))
+	shardIdsWithInfeasibleRF := make([]int64, 0)
+	for _, s := range a.shards {
+		if s.rf > len(a.nodes) {
+			shardIdsWithInfeasibleRF = append(shardIdsWithInfeasibleRF, int64(s.id))
 		}
-		a.assignment[r.id] = make([]solver.IntVar, r.rf)
-		for j := range a.assignment[r.id] {
+		a.assignment[s.id] = make([]solver.IntVar, s.rf)
+		for j := range a.assignment[s.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
-			a.assignment[r.id][j] = a.model.NewIntVarFromDomain(
+			a.assignment[s.id][j] = a.model.NewIntVarFromDomain(
 				solver.NewDomain(int64(a.nodes[0].id), int64(a.nodes[nodeId(len(a.nodes)-1)].id)),
-				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
+				fmt.Sprintf("Allocation var for s.id:%d.", s.id))
 		}
-		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[r.id]...))
+		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[s.id]...))
 	}
-	if len(rangeIdsWithInfeasibleRF) > 0 {
-		return nil, fmt.Errorf("rf passed in greater than cluster size for rangeId: %d", rangeIdsWithInfeasibleRF)
+	if len(shardIdsWithInfeasibleRF) > 0 {
+		return nil, fmt.Errorf("rf passed in greater than cluster size for shardId: %d", shardIdsWithInfeasibleRF)
 	}
 	// add constraints given configurations.
 	if a.config.withResources {
@@ -219,8 +219,8 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 		}
 	}
 
-	for _, r := range a.assignment {
-		a.model.AddConstraints(solver.NewAllDifferentConstraint(r...))
+	for _, s := range a.assignment {
+		a.model.AddConstraints(solver.NewAllDifferentConstraint(s...))
 	}
 
 	if a.config.withMinimalChurn || a.config.maxChurn != noMaxChurn {
@@ -247,11 +247,11 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 	}
 
 	res := make(Allocation)
-	for rId := range a.shards {
-		nodes := a.assignment[rId]
+	for sId := range a.shards {
+		nodes := a.assignment[sId]
 		for _, n := range nodes {
 			allocated := result.Value(n)
-			res[int64(rId)] = append(res[int64(rId)], allocated)
+			res[int64(sId)] = append(res[int64(sId)], allocated)
 		}
 	}
 	return res, nil
