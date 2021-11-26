@@ -7,7 +7,7 @@ type nodeId int64
 type node struct {
 	// id represents a unique identifier.
 	id nodeId
-	// tags are strings that showcase affinity for replicas.
+	// tags are strings that showcase affinity for shards.
 	// note: we key the following map using the tag
 	// and assign an empty struct as the corresponding value
 	// since we only care about tag membership
@@ -56,6 +56,9 @@ func RemoveAllTagsOfNode() NodeOption {
 
 // WithResourceOfNode will add or overwrite the amount of a target Resource the node provides
 func WithResourceOfNode(targetResource Resource, resourceAmount int64) NodeOption {
+	if resourceAmount < 0 {
+		panic("resourceAmount cannot be negative")
+	}
 	return func(modifiedNode *node) {
 		modifiedNode.resources[targetResource] = resourceAmount
 	}

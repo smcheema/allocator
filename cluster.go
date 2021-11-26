@@ -10,49 +10,56 @@ const (
 
 type ClusterState struct {
 	nodes             map[nodeId]*node
-	replicas          map[replicaId]*replica
-	currentAssignment map[replicaId][]nodeId
+	shards            map[shardId]*shard
+	currentAssignment map[shardId][]nodeId
 }
 
 func NewClusterState() *ClusterState {
 	return &ClusterState{
 		nodes:             make(map[nodeId]*node),
-		replicas:          make(map[replicaId]*replica),
-		currentAssignment: make(map[replicaId][]nodeId),
+		shards:            make(map[shardId]*shard),
+		currentAssignment: make(map[shardId][]nodeId),
 	}
 }
 
-// AddReplica will add or overwrite the existing replica given an ID
-func (cs *ClusterState) AddReplica(id int64, rf int, opts ...ReplicaOption) {
-	newReplica := newReplica(replicaId(id), rf)
+// AddShard will add or overwrite the existing shard given a shardId
+func (cs *ClusterState) AddShard(id int64, rf int, opts ...ShardOption) {
+	if id < 0 {
+		panic("shard id cannot be negative")
+	} else if rf < 0 {
+		panic("shard rf cannot be negative")
+	}
+	s := newShard(shardId(id), rf)
 	for _, opt := range opts {
-		opt(newReplica)
+		opt(s)
 	}
-	cs.replicas[replicaId(id)] = newReplica
+	cs.shards[shardId(id)] = s
 }
 
-// RemoveReplica removes a given replica from the cluster
+// RemoveShard removes a given shard from the cluster
 // no-op if it doesn't exist.
-func (cs *ClusterState) RemoveReplica(id int64) {
-	delete(cs.replicas, replicaId(id))
+func (cs *ClusterState) RemoveShard(id int64) {
+	delete(cs.shards, shardId(id))
 }
 
-// UpdateReplica will update the existing replica given an ID
-// returning true for a successful update, false if the replicaID does not map to any replica.
-func (cs *ClusterState) UpdateReplica(id int64, opts ...ReplicaOption) bool {
-	if modifiedReplicaPtr, found := cs.replicas[replicaId(id)]; found {
+// UpdateShard will update the existing shard given a shardId
+// returning true for a successful update, false if the shardId does not map to any shard.
+func (cs *ClusterState) UpdateShard(id int64, opts ...ShardOption) bool {
+	if s, found := cs.shards[shardId(id)]; found {
 		for _, opt := range opts {
-			opt(modifiedReplicaPtr)
+			opt(s)
 		}
-		cs.replicas[replicaId(id)] = modifiedReplicaPtr
-
+		cs.shards[shardId(id)] = s
 		return true
 	}
 	return false
 }
 
-// AddNode will add or overwrite the existing node given an ID
+// AddNode will add or overwrite the existing node given a nodeId
 func (cs *ClusterState) AddNode(id int64, opts ...NodeOption) {
+	if id < 0 {
+		panic("node id cannot be negative")
+	}
 	newNode := newNode(nodeId(id))
 	for _, opt := range opts {
 		opt(newNode)
@@ -66,8 +73,8 @@ func (cs *ClusterState) RemoveNode(id int64) {
 	delete(cs.nodes, nodeId(id))
 }
 
-// UpdateNode will update the existing node given an ID
-// returning true for a successful update, false if the nodeID does not map to any node.
+// UpdateNode will update the existing node given a nodeId
+// returning true for a successful update, false if the nodeId does not map to any node.
 func (cs *ClusterState) UpdateNode(id int64, opts ...NodeOption) bool {
 	if modifiedNodePtr, found := cs.nodes[nodeId(id)]; found {
 		for _, opt := range opts {
@@ -82,11 +89,11 @@ func (cs *ClusterState) UpdateNode(id int64, opts ...NodeOption) bool {
 
 // UpdateCurrentAssignment store the current allocation state to potentially guide the solver
 func (cs *ClusterState) UpdateCurrentAssignment(priorAllocation Allocation) {
-	temp := make(map[replicaId][]nodeId)
+	temp := make(map[shardId][]nodeId)
 	for r, n := range priorAllocation {
-		temp[replicaId(r)] = make([]nodeId, len(n))
+		temp[shardId(r)] = make([]nodeId, len(n))
 		for i, nid := range n {
-			temp[replicaId(r)][i] = nodeId(nid)
+			temp[shardId(r)][i] = nodeId(nid)
 		}
 	}
 	cs.currentAssignment = temp
