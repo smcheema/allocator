@@ -19,34 +19,33 @@ type allocator struct {
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
 	assignment map[shardId][]solver.IntVar
-	// opts hold allocation configurations -> {withResources, withTagAffinity...}
-	opts allocatorOptions
+	// config holds allocation configurations -> {withResources, withTagAffinity...}
+	config configuration
 }
 
 // newAllocator builds, configures, and returns an allocator from the necessary parameters.
-// Note this allocator should not be reused after solving a problem because the underlying solver is stateful
-func newAllocator(cs *ClusterState, opts ...AllocatorOption) *allocator {
+func newAllocator(cs *ClusterState, opts ...Option) *allocator {
 	model := solver.NewModel("Lé-allocator")
 	assignment := make(map[shardId][]solver.IntVar)
-	defaultOptions := allocatorOptions{
-		// assume no maxChurn initially, let the allocator_options slice override if needed.
+	defaultConfiguration := configuration{
+		// assume no maxChurn initially, let the opts slice override if needed.
 		maxChurn:      noMaxChurn,
 		searchTimeout: defaultTimeout,
 	}
 
 	for _, opt := range opts {
-		opt(&defaultOptions)
+		opt(&defaultConfiguration)
 	}
 
 	return &allocator{
 		ClusterState: cs,
 		model:        model,
 		assignment:   assignment,
-		opts:         defaultOptions,
+		config:       defaultConfiguration,
 	}
 }
 
-func Solve(cs *ClusterState, opts ...AllocatorOption) (ok bool, allocation Allocation) {
+func Solve(cs *ClusterState, opts ...Option) (ok bool, allocation Allocation) {
 	return newAllocator(cs, opts...).allocate()
 }
 
@@ -154,14 +153,14 @@ func (a *allocator) adhereToChurnConstraint() {
 	}
 
 	// minimize variance/churn.
-	if a.opts.withMinimalChurn {
+	if a.config.withMinimalChurn {
 		a.model.Minimize(solver.Sum(solver.AsIntVars(toMinimizeTheSumLiterals)...))
 	}
 
 	// we use the following inequality to deem if maxChurn was set, if so, constrain.
-	if a.opts.maxChurn != noMaxChurn {
+	if a.config.maxChurn != noMaxChurn {
 		a.model.AddConstraints(
-			solver.NewAtMostKConstraint(int(a.opts.maxChurn), toMinimizeTheSumLiterals...),
+			solver.NewAtMostKConstraint(int(a.config.maxChurn), toMinimizeTheSumLiterals...),
 		)
 	}
 }
@@ -181,12 +180,12 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
-	// add constraints given opts/configurations.
-	if a.opts.withResources {
+	// add constraints given config/configurations.
+	if a.config.withResources {
 		a.adhereToResourcesAndBalance()
 	}
 
-	if a.opts.withTagAffinity {
+	if a.config.withTagAffinity {
 		a.adhereToNodeTags()
 	}
 
@@ -194,7 +193,7 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(r...))
 	}
 
-	if a.opts.withMinimalChurn || a.opts.maxChurn != noMaxChurn {
+	if a.config.withMinimalChurn || a.config.maxChurn != noMaxChurn {
 		a.adhereToChurnConstraint()
 	}
 
@@ -204,12 +203,12 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 	}
 
 	var result solver.Result
-	if a.opts.verboseLogging {
+	if a.config.verboseLogging {
 		var sb strings.Builder
-		result = a.model.Solve(solver.WithLogger(&sb, loggingPrefix), solver.WithTimeout(a.opts.searchTimeout))
+		result = a.model.Solve(solver.WithLogger(&sb, loggingPrefix), solver.WithTimeout(a.config.searchTimeout))
 		log.Print(sb.String())
 	} else {
-		result = a.model.Solve(solver.WithTimeout(a.opts.searchTimeout))
+		result = a.model.Solve(solver.WithTimeout(a.config.searchTimeout))
 	}
 
 	if !(result.Feasible() || result.Optimal()) {
