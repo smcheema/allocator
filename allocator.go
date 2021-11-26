@@ -8,28 +8,28 @@ import (
 )
 
 // Allocation is the return type of our allocator.
-// It models mappings of ReplicaIDs to a list of NodeIDs.
+// It models mappings of ShardIds to a list of NodeIds.
 type Allocation map[int64][]int64
 
-// allocator holds the replicas, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
+// allocator holds the shards, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type allocator struct {
 	// ClusterState anonymous type that holds our ranges and nodes metadata.
 	*ClusterState
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
-	assignment map[replicaId][]solver.IntVar
+	assignment map[shardId][]solver.IntVar
 	// opts hold allocation configurations -> {withResources, withTagAffinity...}
-	opts allocOptions
+	opts allocatorOptions
 }
 
 // newAllocator builds, configures, and returns an allocator from the necessary parameters.
 // Note this allocator should not be reused after solving a problem because the underlying solver is stateful
-func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
+func newAllocator(cs *ClusterState, opts ...AllocatorOption) *allocator {
 	model := solver.NewModel("Lé-allocator")
-	assignment := make(map[replicaId][]solver.IntVar)
-	defaultOptions := allocOptions{
-		// assume no maxChurn initially, let the allocOptions slice override if needed.
+	assignment := make(map[shardId][]solver.IntVar)
+	defaultOptions := allocatorOptions{
+		// assume no maxChurn initially, let the allocator_options slice override if needed.
 		maxChurn:      noMaxChurn,
 		searchTimeout: defaultTimeout,
 	}
@@ -46,14 +46,14 @@ func newAllocator(cs *ClusterState, opts ...AllocOption) *allocator {
 	}
 }
 
-func Solve(cs *ClusterState, opts ...AllocOption) (ok bool, allocation Allocation) {
+func Solve(cs *ClusterState, opts ...AllocatorOption) (ok bool, allocation Allocation) {
 	return newAllocator(cs, opts...).allocate()
 }
 
 // Print is a utility method that pretty-prints allocation information.
 func (a Allocation) Print() {
-	for replicaID, nodeIDs := range a {
-		fmt.Println("replica with ID: ", replicaID, " on nodes: ", nodeIDs)
+	for sId, nIds := range a {
+		fmt.Println("shard with Id: ", sId, " on nodes: ", nIds)
 	}
 }
 
@@ -68,28 +68,28 @@ func (a *allocator) adhereToResourcesAndBalance() {
 		if c, ok := a.nodes[0].resources[re]; ok {
 			rawCapacity = c
 		} else {
-			for _, r := range a.replicas {
+			for _, r := range a.shards {
 				rawCapacity += r.demands[re]
 			}
 		}
 		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
 		tasks := make([]solver.Interval, 0)
-		// demands represent the resource requirements placed on each node by potential matches to a replica.
+		// demands represent the resource requirements placed on each node by potential matches to a shard.
 		demands := make([]solver.IntVar, 0)
-		for rID, nIDs := range a.assignment {
-			for i, id := range nIDs {
-				// go over replicaIDs and their respective ivs.
-				// for that specific replica, tell the allocator "regardless of where you place this replica, you will
+		for rId, nIds := range a.assignment {
+			for i, id := range nIds {
+				// go over shardIds and their respective ivs.
+				// for that specific shard, tell the allocator "regardless of where you place this shard, you will
 				// pay a cost of r.resource[re]". What we're asking the allocator to do is then arrange the intervals
 				// in a fashion that does not violate our capacity requirements.
 				toAdd := a.model.NewInterval(
 					id,
 					a.model.NewIntVarFromDomain(solver.NewDomain(1, int64(len(a.nodes))), "Adjusted intervals for upper bounds."),
 					fixedSizedOneOffset,
-					fmt.Sprintf("Interval representing demands placed on node by replica: %d, replica: %d", rID, i),
+					fmt.Sprintf("Interval representing demands placed on node by shard: %d, shard: %d", rId, i),
 				)
 				tasks = append(tasks, toAdd)
-				demands = append(demands, a.model.NewConstant(a.replicas[rID].demands[re], fmt.Sprintf("Demand for r.id:%d.", rID)))
+				demands = append(demands, a.model.NewConstant(a.shards[rId].demands[re], fmt.Sprintf("Demand for r.id:%d.", rId)))
 			}
 		}
 		// set ceiling for interval interleaving.
@@ -103,26 +103,26 @@ func (a *allocator) adhereToResourcesAndBalance() {
 }
 
 func (a *allocator) adhereToNodeTags() {
-	for rID, r := range a.replicas {
+	for rId, r := range a.shards {
 		forbiddenAssignments := make([][]int64, 0)
-		// for each replica-node pair, if incompatible, force the allocator to write-off said allocation.
-		for nID, n := range a.nodes {
-			if !replicaTagsAreSubsetOfNodeTags(r.tags, n.tags) {
-				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nID)})
+		// for each shard-node pair, if incompatible, force the allocator to write-off said allocation.
+		for nId, n := range a.nodes {
+			if !shardTagsAreSubsetOfNodeTags(r.tags, n.tags) {
+				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nId)})
 			}
 		}
 		for i := 0; i < r.rf; i++ {
 			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
-				[]solver.IntVar{a.assignment[rID][i]}, forbiddenAssignments,
+				[]solver.IntVar{a.assignment[rId][i]}, forbiddenAssignments,
 			))
 		}
 	}
 }
 
-// replicaTagsAreSubsetOfNodeTags returns true iff a replica's tags are a subset of a node's tags
-func replicaTagsAreSubsetOfNodeTags(replicaTags map[string]struct{}, nodeTags map[string]struct{}) bool {
-	for replicaTag := range replicaTags {
-		if _, found := nodeTags[replicaTag]; !found {
+// shardTagsAreSubsetOfNodeTags returns true iff a shard's tags are a subset of a node's tags
+func shardTagsAreSubsetOfNodeTags(shardTags map[string]struct{}, nodeTags map[string]struct{}) bool {
+	for sTag := range shardTags {
+		if _, found := nodeTags[sTag]; !found {
 			return false
 		}
 	}
@@ -136,16 +136,16 @@ func (a *allocator) adhereToChurnConstraint() {
 	toMinimizeTheSumLiterals := make([]solver.Literal, 0)
 	fixedDomain := solver.NewDomain(0, 0)
 
-	for _, r := range a.replicas {
-		// go over replicas, if a replica was previously assigned to some node, attempt to keep that assignment as long as
+	for _, r := range a.shards {
+		// go over shards, if a shard was previously assigned to some node, attempt to keep that assignment as long as
 		// said node still exists in the cluster.
-		if prevNodeIDs, ok := a.currentAssignment[r.id]; ok {
+		if prevNodeIds, ok := a.currentAssignment[r.id]; ok {
 			for i, iv := range a.assignment[r.id] {
-				if _, ok := a.nodes[prevNodeIDs[i]]; ok {
-					newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of replica:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))
+				if _, ok := a.nodes[prevNodeIds[i]]; ok {
+					newLiteral := a.model.NewLiteral(fmt.Sprintf("Literal tracking variance between assignment of shard:%d, shard:%d on node:%d", r.id, i, prevNodeIds[i]))
 					a.model.AddConstraints(
 						solver.NewLinearConstraint(
-							solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIDs[i]), fmt.Sprintf("IntVar corresponding to assignment of replica:%d, replica:%d on node:%d", r.id, i, prevNodeIDs[i]))},
+							solver.NewLinearExpr([]solver.IntVar{iv, a.model.NewConstant(int64(prevNodeIds[i]), fmt.Sprintf("IntVar corresponding to assignment of shard:%d, shard:%d on node:%d", r.id, i, prevNodeIds[i]))},
 								[]int64{1, -1}, 0), fixedDomain).OnlyEnforceIf(newLiteral))
 					toMinimizeTheSumLiterals = append(toMinimizeTheSumLiterals, newLiteral.Not())
 				}
@@ -170,9 +170,9 @@ func (a *allocator) adhereToChurnConstraint() {
 // The status could be false if the existing model is invalid or unsatisfiable.
 func (a *allocator) allocate() (ok bool, allocation Allocation) {
 
-	// iterate over replicas, assign each replicaID a list of IV's sized r.rf.
-	// These will ultimately then read as: replicaID's replicas assigned to nodes [N.1, N.2,...N.RF]
-	for _, r := range a.replicas {
+	// iterate over shards, assign each shardId a list of IV's sized r.rf.
+	// These will ultimately then read as: shardId's shards assigned to nodes [N.1, N.2,...N.RF]
+	for _, r := range a.shards {
 		a.assignment[r.id] = make([]solver.IntVar, r.rf)
 		for j := range a.assignment[r.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
@@ -217,11 +217,11 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 	}
 
 	res := make(Allocation)
-	for rID, r := range a.replicas {
-		nodes := a.assignment[rID]
+	for rId := range a.shards {
+		nodes := a.assignment[rId]
 		for _, n := range nodes {
 			allocated := result.Value(n)
-			res[int64(r.id)] = append(res[int64(r.id)], allocated)
+			res[int64(rId)] = append(res[int64(rId)], allocated)
 		}
 	}
 	return true, res
