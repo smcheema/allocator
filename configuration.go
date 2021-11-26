@@ -8,8 +8,8 @@ const (
 	loggingPrefix  = ""
 )
 
-// allocOptions hold runtime allocation configurations.
-type allocOptions struct {
+// configuration holds runtime allocation preferences.
+type configuration struct {
 	// withResources signals the allocator to perform balancing and capacity checking.
 	withResources bool
 	// withTagAffinity forces the allocator to perform affine allocations only.
@@ -24,55 +24,55 @@ type allocOptions struct {
 	verboseLogging bool
 }
 
-// AllocOption manifests a closure that mutates allocation configurations in accordance with caller preferences.
-type AllocOption func(*allocOptions)
+// Option manifests a closure that mutates allocation configurations in accordance with caller preferences.
+type Option func(*configuration)
 
-//WithResources is a closure that configures the allocator to adhere to capacity constraints and load-balance across
+// WithResources is a closure that configures the allocator to adhere to capacity constraints and load-balance across
 // resources.
-func WithResources() AllocOption {
-	return func(opt *allocOptions) {
+func WithResources() Option {
+	return func(opt *configuration) {
 		opt.withResources = true
 	}
 }
 
 // WithTagMatching is a closure that configures the allocator to perform affine allocations only.
-func WithTagMatching() AllocOption {
-	return func(opt *allocOptions) {
+func WithTagMatching() Option {
+	return func(opt *configuration) {
 		opt.withTagAffinity = true
 	}
 }
 
 // WithMaxChurn is a closure that inspects and sets a hard limit on the maximum number of moves deviating
 // from some prior assignment.
-func WithMaxChurn(maxChurn int64) AllocOption {
-	return func(opt *allocOptions) {
+func WithMaxChurn(maxChurn int64) Option {
+	return func(opt *configuration) {
 		if maxChurn < 0 {
-			panic("maxChurn cannot be negative")
+			panic("max-churn must be greater than or equal to 0")
 		}
 		opt.maxChurn = maxChurn
 	}
 }
 
 // WithChurnMinimized is a closure that configures the allocator to minimize variance from some prior allocation.
-func WithChurnMinimized() AllocOption {
-	return func(opt *allocOptions) {
+func WithChurnMinimized() Option {
+	return func(opt *configuration) {
 		opt.withMinimalChurn = true
 	}
 }
 
 // WithTimeout is a closure that configures the allocator to conclude its search within the duration provided.
-func WithTimeout(searchTimeout time.Duration) AllocOption {
+func WithTimeout(searchTimeout time.Duration) Option {
 	if searchTimeout < 0 {
 		panic("searchTimeout cannot be negative")
 	}
-	return func(opt *allocOptions) {
+	return func(opt *configuration) {
 		opt.searchTimeout = searchTimeout
 	}
 }
 
 // WithVerboseLogging is a closure that forces our solver to expose its logs to the caller for inspection.
-func WithVerboseLogging() AllocOption {
-	return func(opt *allocOptions) {
+func WithVerboseLogging() Option {
+	return func(opt *configuration) {
 		opt.verboseLogging = true
 	}
 }
