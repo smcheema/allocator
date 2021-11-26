@@ -20,8 +20,8 @@ func TestReplication(t *testing.T) {
 		clusterState.AddShard(int64(i), rf)
 	}
 
-	status, allocation := allocator.Solve(clusterState)
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState)
+	require.Nil(t, err)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
@@ -44,8 +44,8 @@ func TestReplicationWithInsufficientNodes(t *testing.T) {
 		clusterState.AddShard(int64(i), rf)
 	}
 
-	status, allocation := allocator.Solve(clusterState)
-	require.False(t, status)
+	allocation, err := allocator.Solve(clusterState)
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -63,8 +63,8 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 		clusterState.AddShard(int64(i), rf)
 	}
 
-	status, allocation := allocator.Solve(clusterState)
-	require.False(t, status)
+	allocation, err := allocator.Solve(clusterState)
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -90,8 +90,8 @@ func TestCapacity(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
+	require.Nil(t, err)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
@@ -121,8 +121,8 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
+	require.Nil(t, err)
 	for _, nodeAssignments := range allocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
@@ -154,8 +154,8 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
-	require.False(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -182,8 +182,8 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
-	require.False(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -223,8 +223,8 @@ func TestTagsWithViableNodes(t *testing.T) {
 		1: {1},
 		2: {0},
 	}
-	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithTagMatching())
+	require.Nil(t, err)
 	require.Equal(t, expectedAllocation, allocation)
 }
 
@@ -251,8 +251,8 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
-	require.False(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithTagMatching())
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -291,8 +291,8 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 		)
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithTagMatching())
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithTagMatching())
+	require.Nil(t, err)
 
 	clusterState.UpdateCurrentAssignment(allocation)
 
@@ -301,13 +301,13 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 		clusterState.UpdateNode(int64(index), allocator.RemoveAllTagsOfNode())
 	}
 
-	status, allocation = allocator.Solve(
+	allocation, err = allocator.Solve(
 		clusterState,
 		allocator.WithTagMatching(),
 		allocator.WithChurnMinimized(),
 		allocator.WithMaxChurn(maxChurn),
 	)
-	require.False(t, status)
+	require.NotNil(t, err)
 	require.Nil(t, allocation)
 }
 
@@ -339,8 +339,8 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		qpsDemands += i
 	}
 
-	status, allocation := allocator.Solve(clusterState, allocator.WithResources())
-	require.True(t, status)
+	allocation, err := allocator.Solve(clusterState, allocator.WithResources())
+	require.Nil(t, err)
 	reasonableVariance := 0.2
 	idealSizeAllocation := float64(sizeDemands+qpsDemands) / float64(numNodes)
 	for _, nodeAssignments := range allocation {

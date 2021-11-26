@@ -62,6 +62,9 @@ func WithChurnMinimized() Option {
 
 // WithTimeout is a closure that configures the allocator to conclude its search within the duration provided.
 func WithTimeout(searchTimeout time.Duration) Option {
+	if searchTimeout < 0 {
+		panic("searchTimeout cannot be negative")
+	}
 	return func(opt *configuration) {
 		opt.searchTimeout = searchTimeout
 	}

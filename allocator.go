@@ -13,7 +13,7 @@ type Allocation map[int64][]int64
 
 // allocator holds the shards, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
 type allocator struct {
-	// ClusterState anonymous type that holds our ranges and nodes metadata.
+	// ClusterState anonymous type that holds our shards and nodes metadata.
 	*ClusterState
 	// model is the underlying CP-SAT solver and the engine of this package.
 	model *solver.Model
@@ -45,7 +45,10 @@ func newAllocator(cs *ClusterState, opts ...Option) *allocator {
 	}
 }
 
-func Solve(cs *ClusterState, opts ...Option) (ok bool, allocation Allocation) {
+func Solve(cs *ClusterState, opts ...Option) (allocation Allocation, _ error) {
+	if cs == nil {
+		panic("ClusterState cannot be nil")
+	}
 	return newAllocator(cs, opts...).allocate()
 }
 
@@ -56,20 +59,26 @@ func (a Allocation) Print() {
 	}
 }
 
-func (a *allocator) adhereToResourcesAndBalance() {
+func (a *allocator) adhereToResourcesAndBalance() error {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
 	for _, re := range []Resource{DiskResource, QPS} {
 		rawCapacity := int64(0)
+		rawDemand := int64(0)
+		for _, r := range a.shards {
+			rawDemand += r.demands[re] * int64(r.rf)
+		}
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
 		if c, ok := a.nodes[0].resources[re]; ok {
 			rawCapacity = c
 		} else {
-			for _, r := range a.shards {
-				rawCapacity += r.demands[re]
-			}
+			rawCapacity = rawDemand
+		}
+
+		if rawCapacity*int64(len(a.nodes)) < rawDemand {
+			return fmt.Errorf("sum of range demands exceed sum of node resources available")
 		}
 		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
 		tasks := make([]solver.Interval, 0)
@@ -99,9 +108,11 @@ func (a *allocator) adhereToResourcesAndBalance() {
 		)
 		a.model.Minimize(solver.Sum(capacity))
 	}
+	return nil
 }
 
-func (a *allocator) adhereToNodeTags() {
+func (a *allocator) adhereToNodeTags() error {
+	rangeIdsWithWaywardTags := make([]int64, 0)
 	for rId, r := range a.shards {
 		forbiddenAssignments := make([][]int64, 0)
 		// for each shard-node pair, if incompatible, force the allocator to write-off said allocation.
@@ -110,12 +121,19 @@ func (a *allocator) adhereToNodeTags() {
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nId)})
 			}
 		}
+		if len(forbiddenAssignments) == len(a.nodes) {
+			rangeIdsWithWaywardTags = append(rangeIdsWithWaywardTags, int64(rId))
+		}
 		for i := 0; i < r.rf; i++ {
 			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
 				[]solver.IntVar{a.assignment[rId][i]}, forbiddenAssignments,
 			))
 		}
 	}
+	if len(rangeIdsWithWaywardTags) > 0 {
+		return fmt.Errorf("tags that are absent on all nodes found on ranges with rangeId:%d ", rangeIdsWithWaywardTags)
+	}
+	return nil
 }
 
 // shardTagsAreSubsetOfNodeTags returns true iff a shard's tags are a subset of a node's tags
@@ -167,11 +185,15 @@ func (a *allocator) adhereToChurnConstraint() {
 
 // allocate is a terminal method call that returns a status and paired allocation.
 // The status could be false if the existing model is invalid or unsatisfiable.
-func (a *allocator) allocate() (ok bool, allocation Allocation) {
+func (a *allocator) allocate() (allocation Allocation, err error) {
 
 	// iterate over shards, assign each shardId a list of IV's sized r.rf.
 	// These will ultimately then read as: shardId's shards assigned to nodes [N.1, N.2,...N.RF]
+	rangeIdsWithInfeasibleRF := make([]int64, 0)
 	for _, r := range a.shards {
+		if r.rf > len(a.nodes) {
+			rangeIdsWithInfeasibleRF = append(rangeIdsWithInfeasibleRF, int64(r.id))
+		}
 		a.assignment[r.id] = make([]solver.IntVar, r.rf)
 		for j := range a.assignment[r.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
@@ -179,14 +201,22 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 				solver.NewDomain(int64(a.nodes[0].id), int64(a.nodes[nodeId(len(a.nodes)-1)].id)),
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
+		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[r.id]...))
+	}
+	if len(rangeIdsWithInfeasibleRF) > 0 {
+		return nil, fmt.Errorf("rf passed in greater than cluster size for rangeId: %d", rangeIdsWithInfeasibleRF)
 	}
 	// add constraints given configurations.
 	if a.config.withResources {
-		a.adhereToResourcesAndBalance()
+		if err := a.adhereToResourcesAndBalance(); err != nil {
+			return nil, err
+		}
 	}
 
 	if a.config.withTagAffinity {
-		a.adhereToNodeTags()
+		if err := a.adhereToNodeTags(); err != nil {
+			return nil, err
+		}
 	}
 
 	for _, r := range a.assignment {
@@ -199,7 +229,8 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 
 	ok, err := a.model.Validate()
 	if !ok {
-		fmt.Println(err)
+		log.Println("invalid model built: ", err)
+		return nil, fmt.Errorf("invalid model generated, inspect logs for further insights")
 	}
 
 	var result solver.Result
@@ -212,7 +243,7 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 	}
 
 	if !(result.Feasible() || result.Optimal()) {
-		return false, nil
+		return nil, fmt.Errorf("allocation failed, most likely due to a timeout or an infeasible model, use VerboseLogging to debug")
 	}
 
 	res := make(Allocation)
@@ -223,5 +254,5 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 			res[int64(rId)] = append(res[int64(rId)], allocated)
 		}
 	}
-	return true, res
+	return res, nil
 }
