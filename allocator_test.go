@@ -9,8 +9,9 @@ import (
 	"time"
 )
 
-var result bool
 const benchmarkTimeout = time.Minute * 5
+
+var result bool
 
 // Premise : test replication by requiring replicas to be assigned to unique nodes.
 func TestReplication(t *testing.T) {
