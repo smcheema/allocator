@@ -1,6 +1,7 @@
 package allocator_test
 
 import (
+	"fmt"
 	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 )
 
 var result bool
-
 const benchmarkTimeout = time.Minute * 5
 
 // Premise : test replication by requiring replicas to be assigned to unique nodes.
@@ -404,6 +404,7 @@ func replicateAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
 		status, _ = allocator.Solve(clusterState, allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
+	fmt.Println(result)
 }
 
 func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -424,6 +425,7 @@ func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *te
 		status, _ = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
+	fmt.Println(result)
 }
 
 func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -442,6 +444,7 @@ func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing
 		status, _ = allocator.Solve(clusterState, allocator.WithResources(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
+	fmt.Println(result)
 }
 
 func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
@@ -460,6 +463,7 @@ func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *tes
 		status, _ = allocator.Solve(clusterState, allocator.WithTagMatching(), allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
+	fmt.Println(result)
 }
 
 func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B) {
@@ -491,6 +495,7 @@ func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B)
 			allocator.WithTimeout(benchmarkTimeout))
 	}
 	result = status
+	fmt.Println(result)
 }
 
 func validateRf(rf int, numNodes int) {
