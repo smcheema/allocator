@@ -180,7 +180,7 @@ func (a *allocator) allocate() (ok bool, allocation Allocation) {
 				fmt.Sprintf("Allocation var for r.id:%d.", r.id))
 		}
 	}
-	// add constraints given config/configurations.
+	// add constraints given configurations.
 	if a.config.withResources {
 		a.adhereToResourcesAndBalance()
 	}
