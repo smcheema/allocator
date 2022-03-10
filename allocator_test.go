@@ -328,7 +328,7 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	}
 
 	const maxChurn = 1
-	configuration.Update(
+	configuration.UpdateConfiguration(
 		allocator.WithChurnMinimized(true),
 		allocator.WithMaxChurn(maxChurn),
 	)
