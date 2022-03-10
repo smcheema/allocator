@@ -11,7 +11,7 @@ import (
 // It models mappings of shardIds to a list of nodeIds.
 type Allocation map[int64][]int64
 
-// allocator holds the shards, nodes, underlying CP-SAT solver, assigment variables, and configuration needed.
+// allocator holds the shards, nodes, underlying CP-SAT solver, assigment variables, and Configuration needed.
 type allocator struct {
 	// ClusterState anonymous type that holds our shards and nodes metadata.
 	*ClusterState
@@ -20,36 +20,27 @@ type allocator struct {
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
 	assignment map[shardId][]solver.IntVar
 	// config holds allocation configurations -> {withResources, withTagAffinity...}
-	config configuration
+	config *Configuration
 }
 
 // newAllocator builds, configures, and returns an allocator from the necessary parameters.
-func newAllocator(cs *ClusterState, opts ...Option) *allocator {
+func newAllocator(cs *ClusterState, config *Configuration) *allocator {
 	model := solver.NewModel("Lé-allocator")
 	assignment := make(map[shardId][]solver.IntVar)
-	defaultConfiguration := configuration{
-		// assume no maxChurn initially, let the opts slice override if needed.
-		maxChurn:      noMaxChurn,
-		searchTimeout: defaultTimeout,
-	}
-
-	for _, opt := range opts {
-		opt(&defaultConfiguration)
-	}
 
 	return &allocator{
 		ClusterState: cs,
 		model:        model,
 		assignment:   assignment,
-		config:       defaultConfiguration,
+		config:       config,
 	}
 }
 
-func Solve(cs *ClusterState, opts ...Option) (allocation Allocation, _ error) {
+func Solve(cs *ClusterState, config *Configuration) (allocation Allocation, _ error) {
 	if cs == nil {
 		panic("ClusterState cannot be nil")
 	}
-	return newAllocator(cs, opts...).allocate()
+	return newAllocator(cs, config).allocate()
 }
 
 // Print is a utility method that pretty-prints allocation information.
