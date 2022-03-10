@@ -23,13 +23,11 @@ func NewClusterState() *ClusterState {
 }
 
 // AddShard will add or overwrite the existing shard given a shardId
-func (cs *ClusterState) AddShard(id int64, rf int, opts ...ShardOption) {
+func (cs *ClusterState) AddShard(id int64, opts ...ShardOption) {
 	if id < 0 {
 		panic("shard id cannot be negative")
-	} else if rf < 0 {
-		panic("shard rf cannot be negative")
 	}
-	s := newShard(shardId(id), rf)
+	s := newShard(shardId(id))
 	for _, opt := range opts {
 		opt(s)
 	}

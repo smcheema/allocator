@@ -24,7 +24,7 @@ func TestReplication(t *testing.T) {
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numShards; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 	}
 
 	configuration := allocator.NewConfiguration()
@@ -42,7 +42,6 @@ func TestReplication(t *testing.T) {
 // we mandate implicitly shards to live on separate nodes.
 func TestReplicationWithInsufficientNodes(t *testing.T) {
 	const numShards = 20
-	const rf = 3
 	const numNodes = 1
 
 	clusterState := allocator.NewClusterState()
@@ -50,7 +49,7 @@ func TestReplicationWithInsufficientNodes(t *testing.T) {
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numShards; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 	}
 
 	configuration := allocator.NewConfiguration()
@@ -71,10 +70,10 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numShards; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 	}
 
-	configuration := allocator.NewConfiguration()
+	configuration := allocator.NewConfiguration(allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -98,12 +97,11 @@ func TestCapacity(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithDemandOfShard(allocator.DiskResource, int64(i)),
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true))
+	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.Nil(t, err)
@@ -131,7 +129,6 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithDemandOfShard(allocator.DiskResource, shardSizeDemands[i]),
 		)
 	}
@@ -166,12 +163,11 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithDemandOfShard(allocator.DiskResource, shardSizeDemands[i]),
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true))
+	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -196,12 +192,11 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithDemandOfShard(allocator.DiskResource, shardSizeDemands[i]),
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true))
+	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -234,12 +229,11 @@ func TestTagsWithViableNodes(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithTagsOfShard(shardTags[i]...),
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithTagMatching(true))
+	configuration := allocator.NewConfiguration(allocator.WithTagMatching(true), allocator.WithReplicationFactor(rf))
 
 	expectedAllocation := allocator.Allocation{
 		0: {2},
@@ -269,12 +263,11 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithTagsOfShard(shardTags[i]...),
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithTagMatching(true))
+	configuration := allocator.NewConfiguration(allocator.WithTagMatching(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -285,7 +278,6 @@ func TestTagsWithNonviableNodes(t *testing.T) {
 // so due to low maxChurn limit.
 func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	const numShards = 3
-	const rf = 3
 	const numNodes = 6
 	nodeTags := [][]string{
 		{"tag=A"},
@@ -311,7 +303,6 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithTagsOfShard(shardTags[i]...),
 		)
 	}
@@ -358,7 +349,6 @@ func TestQPSandDiskBalancing(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			rf,
 			allocator.WithDemandOfShard(allocator.DiskResource, int64(i)),
 			allocator.WithDemandOfShard(allocator.QPS, int64(i)),
 		)
@@ -366,7 +356,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		qpsDemands += i
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true))
+	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.Nil(t, err)
@@ -426,10 +416,10 @@ func replicateAndAllocate(rf int, numNodes int, numRanges int, b *testing.B) {
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numRanges; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithTimeout(benchmarkTimeout))
+	configuration := allocator.NewConfiguration(allocator.WithTimeout(benchmarkTimeout), allocator.WithReplicationFactor(rf))
 
 	for n := 0; n < b.N; n++ {
 		_, err = allocator.Solve(clusterState, configuration)
@@ -451,13 +441,14 @@ func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *te
 			allocator.WithResourceOfNode(allocator.DiskResource, int64(nodeCapacity)))
 	}
 	for i := 0; i < numRanges; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 		allocator.WithDemandOfShard(allocator.DiskResource, int64(shardDemand))
 	}
 
 	configuration := allocator.NewConfiguration(
 		allocator.WithResources(true),
 		allocator.WithTimeout(benchmarkTimeout),
+		allocator.WithReplicationFactor(rf),
 	)
 
 	for n := 0; n < b.N; n++ {
@@ -478,13 +469,14 @@ func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numRanges; i++ {
-		clusterState.AddShard(int64(i), rf,
+		clusterState.AddShard(int64(i),
 			allocator.WithDemandOfShard(allocator.QPS, int64(shardQps)))
 	}
 
 	configuration := allocator.NewConfiguration(
 		allocator.WithResources(true),
 		allocator.WithTimeout(benchmarkTimeout),
+		allocator.WithReplicationFactor(rf),
 	)
 
 	for n := 0; n < b.N; n++ {
@@ -506,12 +498,13 @@ func replicateWithTaggingAndAllocate(rf int, numNodes int, numRanges int, b *tes
 		clusterState.AddNode(int64(i), allocator.WithTagsOfNode(strconv.Itoa(i%affineCount)))
 	}
 	for i := 0; i < numRanges; i++ {
-		clusterState.AddShard(int64(i), rf, allocator.WithTagsOfShard(strconv.Itoa(i%affineCount)))
+		clusterState.AddShard(int64(i), allocator.WithTagsOfShard(strconv.Itoa(i%affineCount)))
 	}
 
 	configuration := allocator.NewConfiguration(
 		allocator.WithTagMatching(true),
 		allocator.WithTimeout(benchmarkTimeout),
+		allocator.WithReplicationFactor(rf),
 	)
 
 	for n := 0; n < b.N; n++ {
@@ -536,7 +529,7 @@ func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B)
 		clusterState.AddNode(int64(i))
 	}
 	for i := 0; i < numRanges; i++ {
-		clusterState.AddShard(int64(i), rf)
+		clusterState.AddShard(int64(i))
 	}
 	// force shard with id == 0 and shard with id == 1 to swap nodes.
 	clusterState.UpdateShard(int64(0), allocator.WithTagsOfShard("x"))
@@ -550,6 +543,7 @@ func replicateWithMaxChurnAndAllocate(numNodes int, numRanges int, b *testing.B)
 		allocator.WithChurnMinimized(true),
 		allocator.WithTagMatching(true),
 		allocator.WithTimeout(benchmarkTimeout),
+		allocator.WithReplicationFactor(rf),
 	)
 
 	for n := 0; n < b.N; n++ {

@@ -58,7 +58,7 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		rawCapacity := int64(0)
 		rawDemand := int64(0)
 		for _, s := range a.shards {
-			rawDemand += s.demands[re] * int64(s.rf)
+			rawDemand += s.demands[re] * int64(a.config.rf)
 		}
 		// compute availability of node capacity. If not defined, assume we have just enough to
 		// allocate the entire load on EACH node. This helps keep our bounds tight, as opposed to an arbitrary number.
@@ -115,7 +115,7 @@ func (a *allocator) adhereToNodeTags() error {
 		if len(forbiddenAssignments) == len(a.nodes) {
 			shardIdsWithWaywardTags = append(shardIdsWithWaywardTags, int64(sId))
 		}
-		for i := 0; i < s.rf; i++ {
+		for i := 0; i < a.config.rf; i++ {
 			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
 				[]solver.IntVar{a.assignment[sId][i]}, forbiddenAssignments,
 			))
@@ -178,14 +178,14 @@ func (a *allocator) adhereToChurnConstraint() {
 // The status could be false if the existing model is invalid or unsatisfiable.
 func (a *allocator) allocate() (allocation Allocation, err error) {
 
-	// iterate over shards, assign each shardId a list of IV's sized s.rf.
+	if a.config.rf > len(a.nodes) {
+		return nil, fmt.Errorf("rf specified in greater than cluster size")
+	}
+
+	// iterate over shards, assign each shardId a list of IV's sized rf.
 	// These will ultimately then read as: shardId's shards assigned to nodes [N.1, N.2,...N.RF]
-	shardIdsWithInfeasibleRF := make([]int64, 0)
 	for _, s := range a.shards {
-		if s.rf > len(a.nodes) {
-			shardIdsWithInfeasibleRF = append(shardIdsWithInfeasibleRF, int64(s.id))
-		}
-		a.assignment[s.id] = make([]solver.IntVar, s.rf)
+		a.assignment[s.id] = make([]solver.IntVar, a.config.rf)
 		for j := range a.assignment[s.id] {
 			// constrain our IV's to live between [0, len(nodes) - 1].
 			a.assignment[s.id][j] = a.model.NewIntVarFromDomain(
@@ -193,9 +193,6 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 				fmt.Sprintf("Allocation var for s.id:%d.", s.id))
 		}
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[s.id]...))
-	}
-	if len(shardIdsWithInfeasibleRF) > 0 {
-		return nil, fmt.Errorf("rf passed in greater than cluster size for shardId: %d", shardIdsWithInfeasibleRF)
 	}
 	// add constraints given configurations.
 	if a.config.withResources {
