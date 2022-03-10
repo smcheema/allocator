@@ -6,6 +6,7 @@ const (
 	noMaxChurn     = -1
 	defaultTimeout = time.Second * 10
 	loggingPrefix  = ""
+	defaultRf      = 3
 )
 
 // Configuration holds runtime allocation preferences.
@@ -22,6 +23,8 @@ type Configuration struct {
 	searchTimeout time.Duration
 	// verboseLogging routes all the internal solver logs to stdout.
 	verboseLogging bool
+	// rf specifies the replication factor applied to all shards.
+	rf int
 }
 
 // ConfigurationOption manifests a closure that mutates allocation configurations in accordance with caller preferences.
@@ -32,6 +35,7 @@ func NewConfiguration(opts ...ConfigurationOption) *Configuration {
 		// assume no maxChurn initially, let the opts slice override if needed.
 		maxChurn:      noMaxChurn,
 		searchTimeout: defaultTimeout,
+		rf:            defaultRf,
 	}
 	for _, opt := range opts {
 		opt(&defaultConfiguration)
@@ -99,5 +103,15 @@ func WithTimeout(searchTimeout time.Duration) ConfigurationOption {
 func WithVerboseLogging(enable bool) ConfigurationOption {
 	return func(opt *Configuration) {
 		opt.verboseLogging = enable
+	}
+}
+
+// WithReplicationFactor is a closure that overrides our default replication factor of 3.
+func WithReplicationFactor(rf int) ConfigurationOption {
+	return func(opt *Configuration) {
+		if rf < 0 {
+			panic("rf cannot be negative")
+		}
+		opt.rf = rf
 	}
 }

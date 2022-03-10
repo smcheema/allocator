@@ -7,8 +7,6 @@ type shardId int64
 type shard struct {
 	// id represents a unique identifier.
 	id shardId
-	// rf equals the replication factor of said shard.
-	rf int
 	// tags are strings that showcase affinity for shards.
 	// note: we key the following map using the tag
 	// and assign an empty struct as the corresponding value
@@ -19,22 +17,14 @@ type shard struct {
 	demands map[Resource]int64
 }
 
-func newShard(id shardId, rf int) *shard {
+func newShard(id shardId) *shard {
 	return &shard{
 		id:      id,
-		rf:      rf,
 		demands: make(map[Resource]int64),
 	}
 }
 
 type ShardOption func(*shard)
-
-// WithReplicationFactor updates the replication factor of a shard
-func WithReplicationFactor(replicationFactor int) ShardOption {
-	return func(s *shard) {
-		s.rf = replicationFactor
-	}
-}
 
 // WithTagsOfShard replaces tags of a shard
 func WithTagsOfShard(tags ...string) ShardOption {
