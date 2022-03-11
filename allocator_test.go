@@ -103,9 +103,13 @@ func TestCapacity(t *testing.T) {
 
 	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
 
-	allocation, err := allocator.Solve(clusterState, configuration)
+	newAllocation, err := allocator.Solve(clusterState, configuration)
+
 	require.Nil(t, err)
-	for _, nodeAssignments := range allocation {
+	s := allocator.NewSerializer("test")
+	s.WriteToFile(0, clusterState, configuration, newAllocation, 0)
+
+	for _, nodeAssignments := range newAllocation {
 		require.Equal(t, len(nodeAssignments), rf)
 		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
 	}
