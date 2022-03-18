@@ -161,7 +161,7 @@ func (s Serializer) WriteToFile(t int, clusterState *ClusterState, configuration
 	}
 
 	// open output file
-	fo, err := os.Create(filepath.Join(s.path, strconv.Itoa(t) + ".json"))
+	fo, err := os.Create(filepath.Join(s.path, strconv.Itoa(t)+".json"))
 	if err != nil {
 		panic(err)
 	}
