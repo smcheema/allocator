@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// bazel test ... --test_output=all   --cache_test_results=no   --test_arg='-test.v'   --test_filter='Test.*' --test_env=TEST_TMPDIR='/home/azerila/dev/cap/temp/'
+var dataOutputRoot = filepath.Join("/", "home", "azerila", "dev", "cap", "temp")
+
 // configurationJson unexported version of Configuration. Exports the attributes for json to serialize
 type configurationJson struct {
 	// withResources signals the allocator to perform balancing and capacity checking.
@@ -119,8 +122,8 @@ type Serializer struct {
 
 func NewSerializer(testName string) (s Serializer) {
 	t := time.Now()
-	nowStr := t.Format("2006-01-02_15:04:05")
-	path := filepath.Join("~", ".cache", "ece496", testName, nowStr)
+	nowStr := t.Format("2006-01-02_15.04.05")
+	path := filepath.Join(dataOutputRoot, testName, nowStr)
 	log.Println(path)
 	err := os.MkdirAll(path, os.ModePerm)
 	if err != nil {
