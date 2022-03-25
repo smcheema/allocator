@@ -11,8 +11,10 @@ const (
 
 // Configuration holds runtime allocation preferences.
 type Configuration struct {
-	// withResources signals the allocator to perform balancing and capacity checking.
-	withResources bool
+	// withCapacity signals the allocator to perform capacity checking.
+	withCapacity bool
+	// withLoadBalancing signals the allocator to perform balancing (withCapacity must be enabled)
+	withLoadBalancing bool
 	// withTagAffinity forces the allocator to perform affine allocations only.
 	withTagAffinity bool
 	// withMinimalChurn asks the allocator to reduce variance from a prior allocation.
@@ -49,11 +51,28 @@ func (c *Configuration) UpdateConfiguration(opts ...ConfigurationOption) {
 	}
 }
 
-// WithResources is a closure that configures the allocator to adhere to capacity constraints and load-balance across
-// resources.
-func WithResources(enable bool) ConfigurationOption {
+// WithCapacity configures the allocator to adhere only to capacity constraints.
+func WithCapacity(enable bool) ConfigurationOption {
 	return func(opt *Configuration) {
-		opt.withResources = enable
+		if enable {
+			opt.withCapacity = true
+			opt.withLoadBalancing = false
+		} else {
+			opt.withCapacity = false
+			opt.withLoadBalancing = false
+		}
+	}
+}
+
+// WithLoadBalancing configures the allocator to adhere to both capacity constraints and load-balance across resources.
+func WithLoadBalancing(enable bool) ConfigurationOption {
+	return func(opt *Configuration) {
+		if enable {
+			opt.withCapacity = true
+			opt.withLoadBalancing = true
+		} else {
+			opt.withLoadBalancing = false
+		}
 	}
 }
 

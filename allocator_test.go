@@ -101,7 +101,7 @@ func TestCapacity(t *testing.T) {
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf))
 
 	newAllocation, err := allocator.Solve(clusterState, configuration)
 
@@ -137,7 +137,7 @@ func TestCapacityTogetherWithReplication(t *testing.T) {
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true))
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.Nil(t, err)
@@ -171,7 +171,7 @@ func TestCapacityWithInfeasibleRF(t *testing.T) {
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -200,7 +200,7 @@ func TestCapacityWithInsufficientNodes(t *testing.T) {
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.NotNil(t, err)
@@ -360,7 +360,7 @@ func TestQPSandDiskBalancing(t *testing.T) {
 		qpsDemands += i
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithResources(true), allocator.WithReplicationFactor(rf))
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf))
 
 	allocation, err := allocator.Solve(clusterState, configuration)
 	require.Nil(t, err)
@@ -379,6 +379,52 @@ func TestQPSandDiskBalancing(t *testing.T) {
 	for _, consumption := range nodeConsumption {
 		require.True(t, (float64(consumption) >= (1-reasonableVariance)*idealSizeAllocation) && (float64(consumption) <= (1+reasonableVariance)*idealSizeAllocation))
 	}
+}
+
+func TestQpsMultipleT(t *testing.T) {
+	println("lol man")
+	const numShards = 30
+	const rf = 3
+	const numNodes = 10
+	const nodeCapacity = 9_500
+	qpsDemands := 0
+	tStep := 0
+
+	shardsQpsDemands := [30]int64{414, 1755, 1677, 1681, 699, 1219, 1758, 388, 1454, 1289, 850, 1444, 291, 1040, 1040, 1280, 1006, 1591, 480, 494, 303, 957, 1682, 701, 559, 1261, 1063, 1002, 1035, 902}
+
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.QPS, nodeCapacity),
+		)
+	}
+	for i := 0; i < numShards; i++ {
+		clusterState.AddShard(
+			int64(i),
+			allocator.WithDemandOfShard(allocator.QPS, shardsQpsDemands[i]),
+		)
+		qpsDemands += i
+	}
+
+	configuration := allocator.NewConfiguration(allocator.WithCapacity(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
+
+	s := allocator.NewSerializer("qps")
+	allocateAndMeasure := func() {
+		start := time.Now()
+		allocation, err := allocator.Solve(clusterState, configuration)
+		duration := time.Since(start)
+		require.Nil(t, err)
+
+		s.WriteToFile(tStep, clusterState, configuration, allocation, int(duration.Milliseconds()))
+		tStep++
+
+		clusterState.UpdateCurrentAssignment(allocation)
+	}
+	allocateAndMeasure()
+
+	configuration.UpdateConfiguration(allocator.WithLoadBalancing(true), allocator.WithChurnMinimized(false))
+	allocateAndMeasure()
 }
 
 // Benchmark names are suffixed with _rRF_nN_sS --> reads as: this benchmark is run with RF = f, numNodes = n, numShard = s.
@@ -450,7 +496,7 @@ func replicateWithCapacityAndAllocate(rf int, numNodes int, numRanges int, b *te
 	}
 
 	configuration := allocator.NewConfiguration(
-		allocator.WithResources(true),
+		allocator.WithLoadBalancing(true),
 		allocator.WithTimeout(benchmarkTimeout),
 		allocator.WithReplicationFactor(rf),
 	)
@@ -478,7 +524,7 @@ func replicateWithQpsAndAllocate(rf int, numNodes int, numRanges int, b *testing
 	}
 
 	configuration := allocator.NewConfiguration(
-		allocator.WithResources(true),
+		allocator.WithLoadBalancing(true),
 		allocator.WithTimeout(benchmarkTimeout),
 		allocator.WithReplicationFactor(rf),
 	)
