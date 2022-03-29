@@ -10,7 +10,7 @@ import (
 )
 
 // bazel test ... --test_output=all   --cache_test_results=no   --test_arg='-test.v'   --test_filter='Test.*' --test_env=TEST_TMPDIR='/home/azerila/dev/cap/temp/'
-var dataOutputRoot = filepath.Join("/", "home", "azerila", "dev", "cap", "temp")
+var dataOutputRoot = filepath.Join("/", "Users", "saadmusani", "Documents", "GitHub", "allocator1","json")
 
 // configurationJson unexported version of Configuration. Exports the attributes for json to serialize
 type configurationJson struct {
