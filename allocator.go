@@ -54,6 +54,7 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
+	capacity := make([]solver.IntVar, 0)
 	for _, re := range []Resource{DiskResource, QPS} {
 		rawCapacity := int64(0)
 		rawDemand := int64(0)
@@ -65,13 +66,14 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		if c, ok := a.nodes[0].resources[re]; ok {
 			rawCapacity = c
 		} else {
-			rawCapacity = rawDemand
+			rawCapacity = rawDemand + 1
 		}
 
 		if rawCapacity*int64(len(a.nodes)) < rawDemand {
 			return fmt.Errorf("sum of shard demands exceed sum of node resources available")
 		}
-		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
+		currResourceCap := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
+		capacity = append(capacity, currResourceCap)
 		tasks := make([]solver.Interval, 0)
 		// demands represent the resource requirements placed on each node by potential matches to a shard.
 		demands := make([]solver.IntVar, 0)
@@ -93,12 +95,12 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		}
 		// set ceiling for interval interleaving.
 		a.model.AddConstraints(
-			solver.NewCumulativeConstraint(capacity,
+			solver.NewCumulativeConstraint(currResourceCap,
 				tasks, demands,
 			),
 		)
-		a.model.Minimize(solver.Sum(capacity))
 	}
+	a.model.Minimize(solver.Sum(capacity...))
 	return nil
 }
 
