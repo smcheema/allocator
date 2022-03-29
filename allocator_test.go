@@ -329,7 +329,6 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
-
 // Premise : define shards/nodes with disk demands/resources and ensure the load spread
 // across resources is within some interval. In this case -> [ideal distribution * 0.7, ideal distribution * 1.3] (30% variance from ideal).
 func TestDiskBalancing(t *testing.T) {
@@ -351,7 +350,7 @@ func TestDiskBalancing(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			allocator.WithDemandOfShard(allocator.DiskResource, scalingFactor * int64(i)),
+			allocator.WithDemandOfShard(allocator.DiskResource, scalingFactor*int64(i)),
 		)
 		sizeDemands += scalingFactor * i * rf
 	}
