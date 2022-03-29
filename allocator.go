@@ -19,7 +19,7 @@ type allocator struct {
 	model *solver.Model
 	// assignment represents variables that we constrain and impose on to satisfy allocation requirements.
 	assignment map[shardId][]solver.IntVar
-	// config holds allocation configurations -> {withResources, withTagAffinity...}
+	// config holds allocation configurations -> {withCapacity, withTagAffinity...}
 	config *Configuration
 }
 
@@ -97,7 +97,10 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 				tasks, demands,
 			),
 		)
-		a.model.Minimize(solver.Sum(capacity))
+
+		if a.config.withLoadBalancing {
+			a.model.Minimize(solver.Sum(capacity))
+		}
 	}
 	return nil
 }
@@ -195,7 +198,7 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[s.id]...))
 	}
 	// add constraints given configurations.
-	if a.config.withResources {
+	if a.config.withCapacity {
 		if err := a.adhereToResourcesAndBalance(); err != nil {
 			return nil, err
 		}

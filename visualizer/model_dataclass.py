@@ -29,7 +29,8 @@ class ClusterState:
 
 @dataclass
 class Configuration:
-    WithResources: bool
+    WithCapacity: bool
+    WithLoadBalancing: bool
     WithTagAffinity: bool
     WithMinimalChurn: bool
     MaxChurn: int

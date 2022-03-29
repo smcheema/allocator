@@ -14,32 +14,35 @@ var dataOutputRoot = filepath.Join("/", "Users", "saadmusani", "Documents", "Git
 
 // configurationJson unexported version of Configuration. Exports the attributes for json to serialize
 type configurationJson struct {
-	// withResources signals the allocator to perform balancing and capacity checking.
-	WithResources bool
-	// withTagAffinity forces the allocator to perform affine allocations only.
+	// WithCapacity signals the allocator to perform capacity checking.
+	WithCapacity bool
+	// WithLoadBalancing signals the allocator to perform load balancing.
+	WithLoadBalancing bool
+	// WithTagAffinity forces the allocator to perform affine allocations only.
 	WithTagAffinity bool
-	// withMinimalChurn asks the allocator to reduce variance from a prior allocation.
+	// WithMinimalChurn asks the allocator to reduce variance from a prior allocation.
 	WithMinimalChurn bool
-	// maxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
+	// MaxChurn limits the number of moves needed to fulfill an allocation request with respect to a prior allocation.
 	MaxChurn int64
-	// searchTimeout forces the solver to return within the specified duration.
+	// SearchTimeout forces the solver to return within the specified duration.
 	SearchTimeout time.Duration
-	// verboseLogging routes all the internal solver logs to stdout.
+	// VerboseLogging routes all the internal solver logs to stdout.
 	VerboseLogging bool
-	// rf specifies the replication factor applied to all shards.
+	// Rf specifies the replication factor applied to all shards.
 	Rf int
 }
 
 func (c Configuration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(
 		configurationJson{
-			WithResources:    c.withResources,
-			WithTagAffinity:  c.withTagAffinity,
-			WithMinimalChurn: c.withMinimalChurn,
-			MaxChurn:         c.maxChurn,
-			SearchTimeout:    c.searchTimeout,
-			VerboseLogging:   c.verboseLogging,
-			Rf:               c.rf,
+			WithCapacity:      c.withCapacity,
+			WithLoadBalancing: c.withLoadBalancing,
+			WithTagAffinity:   c.withTagAffinity,
+			WithMinimalChurn:  c.withMinimalChurn,
+			MaxChurn:          c.maxChurn,
+			SearchTimeout:     c.searchTimeout,
+			VerboseLogging:    c.verboseLogging,
+			Rf:                c.rf,
 		},
 	)
 }
@@ -124,7 +127,6 @@ func NewSerializer(testName string) (s Serializer) {
 	t := time.Now()
 	nowStr := t.Format("2006-01-02_15.04.05")
 	path := filepath.Join(dataOutputRoot, testName, nowStr)
-	log.Println(path)
 	err := os.MkdirAll(path, os.ModePerm)
 	if err != nil {
 		log.Println("damn")
