@@ -5,7 +5,7 @@ import marshmallow_dataclass
 import marshmallow.validate
 import json
 
-DATA_ROOT = "/home/azerila/dev/cap/temp" # Full file path would be <DATA_ROOT>/testName/2022-03-15_19.32.28/0.json
+DATA_ROOT = "/Users/saadmusani/Documents/GitHub/allocator1/json" # Full file path would be <DATA_ROOT>/testName/2022-03-15_19.32.28/0.json
 
 # https://pynative.com/make-python-class-json-serializable/
 # https://github.com/lovasoa/marshmallow_dataclass (pip3 install marshmallow-dataclass)
