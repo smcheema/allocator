@@ -5,6 +5,7 @@ import marshmallow_dataclass
 import marshmallow.validate
 import json
 
+# /home/azerila/dev/cap/temp
 DATA_ROOT = "/Users/saadmusani/Documents/GitHub/allocator1/json" # Full file path would be <DATA_ROOT>/testName/2022-03-15_19.32.28/0.json
 
 # https://pynative.com/make-python-class-json-serializable/
@@ -12,13 +13,13 @@ DATA_ROOT = "/Users/saadmusani/Documents/GitHub/allocator1/json" # Full file pat
 @dataclass
 class Node:
     Id: int
-    Tags: Set[str] = field(metadata={'allow_none': True})
+    Tags: List[str] = field(metadata={'allow_none': True})
     Resources: Dict[str, int]
 
 @dataclass
 class Shard:
     Id: int
-    Tags: Set[str] = field(metadata={'allow_none': True})
+    Tags: List[str] = field(metadata={'allow_none': True})
     Demands: Dict[str, int]
 
 @dataclass

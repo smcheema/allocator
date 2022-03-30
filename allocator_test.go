@@ -433,12 +433,11 @@ func TestQPSandDiskBalancing(t *testing.T) {
 }
 
 func TestQpsMultipleT(t *testing.T) {
-	println("lol man")
 	const numShards = 30
 	const rf = 3
 	const numNodes = 10
 	const nodeCapacity = 9_500
-	qpsDemands := 0
+
 	tStep := 0
 
 	shardsQpsDemands := [30]int64{414, 1755, 1677, 1681, 699, 1219, 1758, 388, 1454, 1289, 850, 1444, 291, 1040, 1040, 1280, 1006, 1591, 480, 494, 303, 957, 1682, 701, 559, 1261, 1063, 1002, 1035, 902}
@@ -455,7 +454,6 @@ func TestQpsMultipleT(t *testing.T) {
 			int64(i),
 			allocator.WithDemandOfShard(allocator.QPS, shardsQpsDemands[i]),
 		)
-		qpsDemands += i
 	}
 
 	configuration := allocator.NewConfiguration(allocator.WithCapacity(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
@@ -475,6 +473,45 @@ func TestQpsMultipleT(t *testing.T) {
 	allocateAndMeasure()
 
 	configuration.UpdateConfiguration(allocator.WithLoadBalancing(true), allocator.WithChurnMinimized(false))
+	allocateAndMeasure()
+}
+
+func TestQpsMultipleTSaad(t *testing.T) {
+	const numShards = 20
+	const rf = 2
+	const numNodes = 8
+	const nodeCapacity = 10_000
+
+	tStep := 0
+
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.QPS, nodeCapacity),
+		)
+	}
+	for i := 0; i < numShards; i++ {
+		clusterState.AddShard(
+			int64(i),
+			allocator.WithDemandOfShard(allocator.QPS, 50*int64(i + 1)),
+		)
+	}
+
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
+
+	s := allocator.NewSerializer("qps")
+	allocateAndMeasure := func() {
+		start := time.Now()
+		allocation, err := allocator.Solve(clusterState, configuration)
+		duration := time.Since(start)
+		require.Nil(t, err)
+
+		s.WriteToFile(tStep, clusterState, configuration, allocation, int(duration.Milliseconds()))
+		tStep++
+
+		clusterState.UpdateCurrentAssignment(allocation)
+	}
 	allocateAndMeasure()
 }
 

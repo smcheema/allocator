@@ -56,16 +56,22 @@ type nodeJson struct {
 	// and assign an empty struct as the corresponding value
 	// since we only care about tag membership
 	// and not values assigned to said tag per se.
-	Tags map[string]struct{}
+	Tags []string
 	// resources model the Resource profile of said node.
 	Resources map[Resource]int64
 }
 
 func (n node) MarshalJSON() ([]byte, error) {
+	var tagsList []string
+
+	for k := range n.tags {
+		tagsList = append(tagsList, k)
+	}
+
 	return json.Marshal(
 		nodeJson{
 			Id:        n.id,
-			Tags:      n.tags,
+			Tags:      tagsList,
 			Resources: n.resources,
 		},
 	)
@@ -80,16 +86,22 @@ type shardJson struct {
 	// and assign an empty struct as the corresponding value
 	// since we only care about tag membership
 	// and not values assigned to said tag per se.
-	Tags map[string]struct{}
+	Tags []string
 	// demands model the Resource requirements of said shard.
 	Demands map[Resource]int64
 }
 
 func (s shard) MarshalJSON() ([]byte, error) {
+	var tagsList []string
+
+	for k := range s.tags {
+		tagsList = append(tagsList, k)
+	}
+
 	return json.Marshal(
 		shardJson{
 			Id:      s.id,
-			Tags:    s.tags,
+			Tags:    tagsList,
 			Demands: s.demands,
 		},
 	)
