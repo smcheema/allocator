@@ -13,8 +13,9 @@ const benchmarkTimeout = time.Minute * 5
 
 var result error
 
-// Premise : test replication by requiring shards to be assigned to unique nodes.
-func TestReplication(t *testing.T) {
+// Premise : test replication by requiring shards to be assigned
+// to unique nodes.
+func TestUniqueReplication(t *testing.T) {
 	const numShards = 20
 	const rf = 3
 	const numNodes = 64
@@ -38,8 +39,9 @@ func TestReplication(t *testing.T) {
 	}
 }
 
-// Premise : test infeasible allocation by setting numNodes < rf. This is deemed infeasible since
-// we mandate implicitly shards to live on separate nodes.
+// Premise : test infeasible allocation by setting numNodes < rf.
+// This is deemed infeasible since we mandate implicitly shards to
+// live on separate nodes.
 func TestReplicationWithInsufficientNodes(t *testing.T) {
 	const numShards = 20
 	const numNodes = 1
@@ -83,7 +85,7 @@ func TestReplicationWithInfeasibleRF(t *testing.T) {
 // Premise : build space-aware nodes and shards. Require all capacity constraints are respected.
 func TestCapacity(t *testing.T) {
 	const numShards = 20
-	const rf = 1
+	const rf = 2
 	const numNodes = 8
 	const nodeCapacity = 10_000
 
@@ -97,7 +99,7 @@ func TestCapacity(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			allocator.WithDemandOfShard(allocator.DiskResource, int64(i)),
+			allocator.WithDemandOfShard(allocator.DiskResource, int64(i)*10),
 		)
 	}
 
@@ -245,6 +247,8 @@ func TestTagsWithViableNodes(t *testing.T) {
 		2: {0},
 	}
 	allocation, err := allocator.Solve(clusterState, configuration)
+	s := allocator.NewSerializer("test")
+	s.WriteToFile(0, clusterState, configuration, allocation, 0)
 	require.Nil(t, err)
 	require.Equal(t, expectedAllocation, allocation)
 }
@@ -333,6 +337,53 @@ func TestMaxChurnWithInfeasibleLimit(t *testing.T) {
 	require.Nil(t, allocation)
 }
 
+// Premise : define shards/nodes with disk demands/resources and ensure the load spread
+// across resources is within some interval. In this case -> [ideal distribution * 0.7, ideal distribution * 1.3] (30% variance from ideal).
+func TestDiskBalancing(t *testing.T) {
+	const numShards = 20
+	const rf = 2
+	const numNodes = 8
+	const nodeCapacity = 10_000
+	const scalingFactor = 50
+
+	sizeDemands := 0
+
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.DiskResource, nodeCapacity),
+		)
+	}
+	for i := 0; i < numShards; i++ {
+		clusterState.AddShard(
+			int64(i),
+			allocator.WithDemandOfShard(allocator.DiskResource, scalingFactor*int64(i)),
+		)
+		sizeDemands += scalingFactor * i * rf
+	}
+
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf))
+
+	allocation, err := allocator.Solve(clusterState, configuration)
+	require.Nil(t, err)
+	reasonableVariance := 0.2
+	idealSizeAllocation := float64(sizeDemands) / float64(numNodes)
+	for _, nodeAssignments := range allocation {
+		require.Equal(t, len(nodeAssignments), rf)
+		require.True(t, isValidNodeAssignment(nodeAssignments, numNodes))
+	}
+	nodeConsumption := make(map[int64]int64)
+	for sId, nodeAssignments := range allocation {
+		for _, nId := range nodeAssignments {
+			nodeConsumption[nId] += scalingFactor * int64(sId)
+		}
+	}
+	for _, consumption := range nodeConsumption {
+		require.True(t, (float64(consumption) >= (1-reasonableVariance)*idealSizeAllocation) && (float64(consumption) <= (1+reasonableVariance)*idealSizeAllocation))
+	}
+}
+
 // Premise : define shards/nodes with respective demands/resources and ensure the load spread
 // across resources is within some interval. In this case -> [ideal distribution * 0.8, ideal distribution * 1.2] (20% variance from ideal).
 func TestQPSandDiskBalancing(t *testing.T) {
@@ -382,12 +433,11 @@ func TestQPSandDiskBalancing(t *testing.T) {
 }
 
 func TestQpsMultipleT(t *testing.T) {
-	println("lol man")
 	const numShards = 30
 	const rf = 3
 	const numNodes = 10
 	const nodeCapacity = 9_500
-	qpsDemands := 0
+
 	tStep := 0
 
 	shardsQpsDemands := [30]int64{414, 1755, 1677, 1681, 699, 1219, 1758, 388, 1454, 1289, 850, 1444, 291, 1040, 1040, 1280, 1006, 1591, 480, 494, 303, 957, 1682, 701, 559, 1261, 1063, 1002, 1035, 902}
@@ -404,7 +454,6 @@ func TestQpsMultipleT(t *testing.T) {
 			int64(i),
 			allocator.WithDemandOfShard(allocator.QPS, shardsQpsDemands[i]),
 		)
-		qpsDemands += i
 	}
 
 	configuration := allocator.NewConfiguration(allocator.WithCapacity(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
@@ -424,6 +473,45 @@ func TestQpsMultipleT(t *testing.T) {
 	allocateAndMeasure()
 
 	configuration.UpdateConfiguration(allocator.WithLoadBalancing(true), allocator.WithChurnMinimized(false))
+	allocateAndMeasure()
+}
+
+func TestQpsMultipleTSaad(t *testing.T) {
+	const numShards = 20
+	const rf = 2
+	const numNodes = 8
+	const nodeCapacity = 10_000
+
+	tStep := 0
+
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.QPS, nodeCapacity),
+		)
+	}
+	for i := 0; i < numShards; i++ {
+		clusterState.AddShard(
+			int64(i),
+			allocator.WithDemandOfShard(allocator.QPS, 50*int64(i + 1)),
+		)
+	}
+
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
+
+	s := allocator.NewSerializer("qps")
+	allocateAndMeasure := func() {
+		start := time.Now()
+		allocation, err := allocator.Solve(clusterState, configuration)
+		duration := time.Since(start)
+		require.Nil(t, err)
+
+		s.WriteToFile(tStep, clusterState, configuration, allocation, int(duration.Milliseconds()))
+		tStep++
+
+		clusterState.UpdateCurrentAssignment(allocation)
+	}
 	allocateAndMeasure()
 }
 

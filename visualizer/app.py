@@ -110,6 +110,7 @@ currentassignments_layout = html.Div([
     html.Div([
         #html.Div(id='page-1-content'),∂
         html.H1('Current Assignments'),
+        html.H3 ('Allocation Options: Capcity, Disk Resource Balancing , Unique Replicas on Node, QPS Balancing'),
         html.P("Select to see Node Capacity or QPS in the Allocation:"),
         dcc.Dropdown(
             id="dropdown",
@@ -165,17 +166,22 @@ def page_1_dropdown(timevalue,option):
     capacity_Used=[0]*len(file_data.ClusterState.Nodes.keys())
     QPS_Node=[0]*len(file_data.ClusterState.Nodes.keys())
     QPS_Set=False
+    Cap_Set=False
     if '1' in file_data.ClusterState.Shards[0].Demands:
         QPS_Set=True
+    if '0' in file_data.ClusterState.Shards[0].Demands:
+        Cap_Set=True    
  
     for i in file_data.ClusterState.Nodes.keys():
         #print(i)
         for j in node_shard_list[i]:
             #print(j)
-            capacity_Used[i]=capacity_Used[i]+file_data.ClusterState.Shards[j].Demands['0']
+            if Cap_Set:
+                capacity_Used[i]=capacity_Used[i]+file_data.ClusterState.Shards[j].Demands['0']
             if QPS_Set:
                 QPS_Node[i]=QPS_Node[i]+file_data.ClusterState.Shards[j].Demands['1']
-        capacity_Used[i]=capacity_Used[i]/file_data.ClusterState.Nodes[i].Resources['0'] *100
+        if Cap_Set: 
+            capacity_Used[i]=capacity_Used[i]/file_data.ClusterState.Nodes[i].Resources['0'] *100
 
     data_to_use=capacity_Used
     if (option == 'QPS'):
@@ -183,6 +189,11 @@ def page_1_dropdown(timevalue,option):
     fig = go.Figure(
         data=go.Bar(x=node_list,y=data_to_use, # replace with your own data source
                 marker_color='purple'))
+    fig.update_xaxes(title_text="Nodes")
+    if (option == 'QPS'):
+        fig.update_yaxes(title_text="QPS")
+    else:
+        fig.update_yaxes(title_text="Capacity Used")
     return fig
 
 nodetable_layout = html.Div([
