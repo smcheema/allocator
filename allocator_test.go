@@ -504,12 +504,12 @@ func TestQpsMultipleTime(t *testing.T) {
 	allocateAndMeasure()
 }
 
-func TestCapacityAndTags(t *testing.T) {
+func TestCustomTags(t *testing.T) {
 	const numShards = 30
-	const rf = 1
+	const rf = 2
 	const numNodes = 10
-	const nodeQpsCapacity = 3_000
-	const nodeDiskCapacity = 300_000
+	const nodeQpsCapacity = 4_000
+	const nodeDiskCapacity = 400_000
 
 	tStep := 0
 
@@ -517,7 +517,7 @@ func TestCapacityAndTags(t *testing.T) {
 	shardsDiskDemands := [30]int64{62001, 67131, 49032, 53030, 5119, 938, 339, 5902, 81097, 35931, 83064, 44640, 38851, 80344, 11650, 33442, 53359, 38832, 63988, 25569, 59262, 39717, 3532, 19447, 1316, 36187, 79240, 35836, 15724, 43048}
 
 	shardTags := [][]string{{"zone: SA"}, {}, {}, {"zone: EU"}, {"disk: HDD"}, {}, {"zone: OCE"}, {"zone: EU"}, {"zone: EU", "disk: HDD"}, {"disk: SSD", "zone: NA"}, {}, {}, {}, {"zone: EU"}, {"zone: NA"}, {"zone: SA"}, {"zone: OCE"}, {"disk: SSD"}, {}, {}, {"zone: EU", "disk: HDD"}, {}, {"disk: HDD"}, {}, {"disk: HDD", "zone: NA"}, {}, {}, {"zone: SA"}, {}, {"zone: NA"}}
-	nodeTags := [][]string{{"disk: HDD", "zone: EU"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: OCE"}, {"zone: NA"}, {"disk: HDD", "zone: OCE"}, {"disk: HDD"}, {"disk: HDD", "zone: OCE"}, {"disk: SSD", "zone: NA"}, {"disk: HDD", "zone: NA"}}
+	nodeTags := [][]string{{"disk: HDD", "zone: EU"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: NA"}, {"disk: SSD", "zone: OCE"}, {"zone: SA"}, {"disk: HDD", "zone: NA"}, {"disk: HDD", "zone: EU"}, {"disk: HDD", "zone: OCE"}, {"disk: SSD", "zone: NA"}, {"disk: HDD", "zone: NA"}}
 
 	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
@@ -539,10 +539,10 @@ func TestCapacityAndTags(t *testing.T) {
 
 	configuration := allocator.NewConfiguration(
 		allocator.WithVerboseLogging(false),
-		allocator.WithCapacity(true),
+		allocator.WithCapacity(false),
 		allocator.WithReplicationFactor(rf),
 		allocator.WithChurnMinimized(true),
-		allocator.WithTimeout(time.Minute),
+		allocator.WithTimeout(time.Minute * 2),
 		allocator.WithTagMatching(true),
 	)
 
@@ -563,17 +563,20 @@ func TestCapacityAndTags(t *testing.T) {
 	configuration.UpdateConfiguration(
 		allocator.WithLoadBalancing(true),
 		allocator.WithChurnMinimized(false),
-		allocator.WithTagMatching(false),
+		allocator.WithCapacity(true),
 	)
 	allocateAndMeasure()
 
-	configuration.UpdateConfiguration(
-		allocator.WithLoadBalancing(false),
-		//allocator.WithChurnMinimized(true),
-		allocator.WithMaxChurn(10),
-		allocator.WithTagMatching(true),
-	)
-	allocateAndMeasure()
+
+
+	//
+	//configuration.UpdateConfiguration(
+	//	allocator.WithLoadBalancing(true),
+	//	allocator.WithChurnMinimized(false),
+	//	allocator.WithMaxChurn(10),
+	//	allocator.WithTagMatching(true),
+	//)
+	//allocateAndMeasure()
 }
 
 // Benchmark names are suffixed with _rRF_nN_sS --> reads as: this benchmark is run with RF = f, numNodes = n, numShard = s.
