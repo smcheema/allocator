@@ -54,7 +54,6 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 	// build a fixed offset of size one initially to avoid polluting the constant set with unnecessary variables.
 	// we can use this across loop iterations, since this is used only to indicate the distance between intervals starts + ends.
 	fixedSizedOneOffset := a.model.NewConstant(1, fmt.Sprintf("Fixed offset of size 1."))
-	capacity := make([]solver.IntVar, 0)
 	for _, re := range []Resource{DiskResource, QPS} {
 		rawCapacity := int64(0)
 		rawDemand := int64(0)
@@ -72,8 +71,8 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		if rawCapacity*int64(len(a.nodes)) < rawDemand {
 			return fmt.Errorf("sum of shard demands exceed sum of node resources available")
 		}
-		currResourceCap := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
-		capacity = append(capacity, currResourceCap)
+		//currResourceCap := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
+		capacity := a.model.NewIntVar(0, rawCapacity, fmt.Sprintf("IV used to minimize variance and enforce capacity constraint for Resource: %d", re))
 		tasks := make([]solver.Interval, 0)
 		// demands represent the resource requirements placed on each node by potential matches to a shard.
 		demands := make([]solver.IntVar, 0)
@@ -95,12 +94,12 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 		}
 		// set ceiling for interval interleaving.
 		a.model.AddConstraints(
-			solver.NewCumulativeConstraint(currResourceCap,
+			solver.NewCumulativeConstraint(capacity,
 				tasks, demands,
 			),
 		)
 		if a.config.withLoadBalancing {
-			a.model.Minimize(solver.Sum(capacity...))
+			a.model.Minimize(solver.Sum(capacity))
 		}
 
 	}
@@ -110,20 +109,26 @@ func (a *allocator) adhereToResourcesAndBalance() error {
 func (a *allocator) adhereToNodeTags() error {
 	shardIdsWithWaywardTags := make([]int64, 0)
 	for sId, s := range a.shards {
+		//fmt.Println("Shard ID:",sId)
 		forbiddenAssignments := make([][]int64, 0)
 		// for each shard-node pair, if incompatible, force the allocator to write-off said allocation.
 		for nId, n := range a.nodes {
+			//fmt.Println("Before Node Tags:",n.tags," Before Shard Tags: ",s.tags)
 			if !shardTagsAreSubsetOfNodeTags(s.tags, n.tags) {
+				//fmt.Println("Node Tags:",n.tags,"Shard Tags: ",s.tags)
 				forbiddenAssignments = append(forbiddenAssignments, []int64{int64(nId)})
 			}
 		}
 		if len(forbiddenAssignments) == len(a.nodes) {
 			shardIdsWithWaywardTags = append(shardIdsWithWaywardTags, int64(sId))
 		}
-		for i := 0; i < a.config.rf; i++ {
-			a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
-				[]solver.IntVar{a.assignment[sId][i]}, forbiddenAssignments,
-			))
+		//fmt.Println("forbidden Assignments:",forbiddenAssignments)
+		if len(forbiddenAssignments) != 0 {
+			for i := 0; i < a.config.rf; i++ {
+				a.model.AddConstraints(solver.NewForbiddenAssignmentsConstraint(
+					[]solver.IntVar{a.assignment[sId][i]}, forbiddenAssignments,
+				))
+			}
 		}
 	}
 	if len(shardIdsWithWaywardTags) > 0 {
@@ -199,15 +204,15 @@ func (a *allocator) allocate() (allocation Allocation, err error) {
 		}
 		a.model.AddConstraints(solver.NewAllDifferentConstraint(a.assignment[s.id]...))
 	}
-	// add constraints given configurations.
-	if a.config.withCapacity {
-		if err := a.adhereToResourcesAndBalance(); err != nil {
-			return nil, err
-		}
-	}
 
 	if a.config.withTagAffinity {
 		if err := a.adhereToNodeTags(); err != nil {
+			return nil, err
+		}
+	}
+	// add constraints given configurations.
+	if a.config.withCapacity {
+		if err := a.adhereToResourcesAndBalance(); err != nil {
 			return nil, err
 		}
 	}

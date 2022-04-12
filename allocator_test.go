@@ -1,6 +1,7 @@
 package allocator_test
 
 import (
+	"fmt"
 	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
 	"log"
@@ -87,7 +88,7 @@ func TestCapacity(t *testing.T) {
 	const numShards = 20
 	const rf = 2
 	const numNodes = 8
-	const nodeCapacity = 10_000
+	const nodeCapacity = 1000
 
 	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
@@ -217,35 +218,27 @@ func TestTagsWithViableNodes(t *testing.T) {
 	nodeTags := [][]string{
 		{"a=ant", "b=bus", "b=bin", "d=dog"},
 		{"a=all", "b=bus", "e=eat", "f=fun"},
-		{"a=art", "b=bin", "e=ear", "f=fur"},
-	}
+		{"a=art", "b=bin", "e=ear", "f=fur"}}
 	shardTags := [][]string{
 		{"a=art"},
 		{"e=eat"},
-		{"a=ant", "b=bus"},
-	}
-
+		{"a=ant", "b=bus"}}
 	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
 		clusterState.AddNode(
 			int64(i),
-			allocator.WithTagsOfNode(nodeTags[i]...),
-		)
+			allocator.WithTagsOfNode(nodeTags[i]...))
 	}
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			allocator.WithTagsOfShard(shardTags[i]...),
-		)
+			allocator.WithTagsOfShard(shardTags[i]...))
 	}
-
 	configuration := allocator.NewConfiguration(allocator.WithTagMatching(true), allocator.WithReplicationFactor(rf))
-
 	expectedAllocation := allocator.Allocation{
 		0: {2},
 		1: {1},
-		2: {0},
-	}
+		2: {0}}
 	allocation, err := allocator.Solve(clusterState, configuration)
 	s := allocator.NewSerializer("test")
 	s.WriteToFile(0, clusterState, configuration, allocation, 0)
@@ -476,14 +469,12 @@ func TestQpsMultipleT(t *testing.T) {
 	allocateAndMeasure()
 }
 
-func TestQpsMultipleTSaad(t *testing.T) {
+func TestQpsMultipleTime(t *testing.T) {
 	const numShards = 20
 	const rf = 2
 	const numNodes = 8
 	const nodeCapacity = 10_000
-
 	tStep := 0
-
 	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
 		clusterState.AddNode(
@@ -494,12 +485,11 @@ func TestQpsMultipleTSaad(t *testing.T) {
 	for i := 0; i < numShards; i++ {
 		clusterState.AddShard(
 			int64(i),
-			allocator.WithDemandOfShard(allocator.QPS, 50*int64(i + 1)),
+			allocator.WithDemandOfShard(allocator.QPS, 50*int64(i+1)),
 		)
 	}
-
-	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
-
+	configuration := allocator.NewConfiguration(allocator.WithLoadBalancing(true),
+		allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(true), allocator.WithTimeout(time.Minute))
 	s := allocator.NewSerializer("qps")
 	allocateAndMeasure := func() {
 		start := time.Now()
@@ -733,4 +723,57 @@ func nodeCapacityIsRespected(allocation map[int64][]int64, nodeCapacities []int6
 		}
 	}
 	return true
+}
+func TestCapacityAndTags(t *testing.T) {
+	const numShards = 30
+	const rf = 1
+	const numNodes = 10
+	const nodeQpsCapacity = 15000
+	const nodeDiskCapacity = 500000
+
+	tStep := 0
+
+	shardsQpsDemands := [30]int64{316, 163, 1073, 829, 751, 229, 125, 570, 1013, 179, 223, 795, 1064, 173, 879, 728, 293, 993, 540, 868, 371, 706, 305, 865, 218, 213, 338, 333, 78, 449}
+	shardsDiskDemands := [30]int64{62001, 67131, 49032, 53030, 5119, 938, 339, 5902, 81097, 35931, 83064, 44640, 38851, 80344, 11650, 33442, 53359, 38832, 63988, 25569, 59262, 39717, 3532, 19447, 1316, 36187, 79240, 35836, 15724, 43048}
+
+	shardTags := [][]string{{"zone: SA"}, {}, {}, {"zone: EU"}, {"disk: HDD"}, {}, {"zone: OCE"}, {"zone: EU"}, {"zone: EU", "disk: HDD"}, {"disk: SSD", "zone: NA"}, {}, {}, {}, {"zone: EU"}, {"zone: NA"}, {"zone: SA"}, {"zone: OCE"}, {"disk: SSD"}, {}, {}, {"zone: EU", "disk: HDD"}, {}, {"disk: HDD"}, {}, {"disk: HDD", "zone: NA"}, {}, {}, {"zone: SA"}, {}, {"zone: NA"}}
+	nodeTags := [][]string{{"disk: HDD", "zone: OCE"}, {"disk: HDD", "zone: EU"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: OCE"}, {"zone: NA"}, {"disk: HDD"}, {"disk: HDD", "zone: OCE"}, {"disk: SSD", "zone: NA"}, {"disk: HDD", "zone: NA"}}
+
+	clusterState := allocator.NewClusterState()
+	for i := 0; i < numNodes; i++ {
+		clusterState.AddNode(
+			int64(i),
+			allocator.WithResourceOfNode(allocator.QPS, nodeQpsCapacity),
+			allocator.WithResourceOfNode(allocator.DiskResource, nodeDiskCapacity),
+			allocator.WithTagsOfNode(nodeTags[i]...),
+		)
+	}
+	for i := 0; i < numShards; i++ {
+		clusterState.AddShard(
+			int64(i),
+			allocator.WithDemandOfShard(allocator.QPS, shardsQpsDemands[i]),
+			allocator.WithDemandOfShard(allocator.DiskResource, shardsDiskDemands[i]),
+			allocator.WithTagsOfShard(shardTags[i]...),
+		)
+	}
+
+	configuration := allocator.NewConfiguration(allocator.WithVerboseLogging(true), allocator.WithCapacity(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(false), allocator.WithTimeout(time.Minute), allocator.WithTagMatching(true))
+
+	s := allocator.NewSerializer("tags")
+	allocateAndMeasure := func() {
+		start := time.Now()
+		allocation, err := allocator.Solve(clusterState, configuration)
+		fmt.Println(allocation)
+		duration := time.Since(start)
+		require.Nil(t, err)
+
+		s.WriteToFile(tStep, clusterState, configuration, allocation, int(duration.Milliseconds()))
+		tStep++
+
+		clusterState.UpdateCurrentAssignment(allocation)
+	}
+	allocateAndMeasure()
+
+	configuration.UpdateConfiguration(allocator.WithVerboseLogging(true), allocator.WithCapacity(true), allocator.WithLoadBalancing(true), allocator.WithChurnMinimized(false), allocator.WithTimeout(2*time.Minute), allocator.WithTagMatching(true))
+	allocateAndMeasure()
 }
