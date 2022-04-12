@@ -1,7 +1,6 @@
 package allocator_test
 
 import (
-	"fmt"
 	"github.com/smcheema/allocator"
 	"github.com/stretchr/testify/require"
 	"log"
@@ -509,8 +508,8 @@ func TestCapacityAndTags(t *testing.T) {
 	const numShards = 30
 	const rf = 1
 	const numNodes = 10
-	const nodeQpsCapacity = 15000
-	const nodeDiskCapacity = 500000
+	const nodeQpsCapacity = 3_000
+	const nodeDiskCapacity = 300_000
 
 	tStep := 0
 
@@ -518,7 +517,7 @@ func TestCapacityAndTags(t *testing.T) {
 	shardsDiskDemands := [30]int64{62001, 67131, 49032, 53030, 5119, 938, 339, 5902, 81097, 35931, 83064, 44640, 38851, 80344, 11650, 33442, 53359, 38832, 63988, 25569, 59262, 39717, 3532, 19447, 1316, 36187, 79240, 35836, 15724, 43048}
 
 	shardTags := [][]string{{"zone: SA"}, {}, {}, {"zone: EU"}, {"disk: HDD"}, {}, {"zone: OCE"}, {"zone: EU"}, {"zone: EU", "disk: HDD"}, {"disk: SSD", "zone: NA"}, {}, {}, {}, {"zone: EU"}, {"zone: NA"}, {"zone: SA"}, {"zone: OCE"}, {"disk: SSD"}, {}, {}, {"zone: EU", "disk: HDD"}, {}, {"disk: HDD"}, {}, {"disk: HDD", "zone: NA"}, {}, {}, {"zone: SA"}, {}, {"zone: NA"}}
-	nodeTags := [][]string{{"disk: HDD", "zone: OCE"}, {"disk: HDD", "zone: EU"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: OCE"}, {"zone: NA"}, {"disk: HDD"}, {"disk: HDD", "zone: OCE"}, {"disk: SSD", "zone: NA"}, {"disk: HDD", "zone: NA"}}
+	nodeTags := [][]string{{"disk: HDD", "zone: EU"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: SA"}, {"disk: SSD", "zone: OCE"}, {"zone: NA"}, {"disk: HDD", "zone: OCE"}, {"disk: HDD"}, {"disk: HDD", "zone: OCE"}, {"disk: SSD", "zone: NA"}, {"disk: HDD", "zone: NA"}}
 
 	clusterState := allocator.NewClusterState()
 	for i := 0; i < numNodes; i++ {
@@ -538,13 +537,19 @@ func TestCapacityAndTags(t *testing.T) {
 		)
 	}
 
-	configuration := allocator.NewConfiguration(allocator.WithVerboseLogging(true), allocator.WithCapacity(true), allocator.WithReplicationFactor(rf), allocator.WithChurnMinimized(false), allocator.WithTimeout(time.Minute), allocator.WithTagMatching(true))
+	configuration := allocator.NewConfiguration(
+		allocator.WithVerboseLogging(false),
+		allocator.WithCapacity(true),
+		allocator.WithReplicationFactor(rf),
+		allocator.WithChurnMinimized(true),
+		allocator.WithTimeout(time.Minute),
+		allocator.WithTagMatching(true),
+	)
 
 	s := allocator.NewSerializer("tags")
 	allocateAndMeasure := func() {
 		start := time.Now()
 		allocation, err := allocator.Solve(clusterState, configuration)
-		fmt.Println(allocation)
 		duration := time.Since(start)
 		require.Nil(t, err)
 
@@ -555,7 +560,19 @@ func TestCapacityAndTags(t *testing.T) {
 	}
 	allocateAndMeasure()
 
-	configuration.UpdateConfiguration(allocator.WithVerboseLogging(true), allocator.WithCapacity(true), allocator.WithLoadBalancing(true), allocator.WithChurnMinimized(false), allocator.WithTimeout(2*time.Minute), allocator.WithTagMatching(true))
+	configuration.UpdateConfiguration(
+		allocator.WithLoadBalancing(true),
+		allocator.WithChurnMinimized(false),
+		allocator.WithTagMatching(false),
+	)
+	allocateAndMeasure()
+
+	configuration.UpdateConfiguration(
+		allocator.WithLoadBalancing(false),
+		//allocator.WithChurnMinimized(true),
+		allocator.WithMaxChurn(10),
+		allocator.WithTagMatching(true),
+	)
 	allocateAndMeasure()
 }
 
